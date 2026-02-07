@@ -47,7 +47,6 @@ export function CodingSession({
 	const { status, runtime, error, previewUrl, sessionTitle, isMigrating } = useCodingSessionRuntime(
 		{
 			sessionId,
-			userId: authSession?.user?.id || "",
 			initialPrompt,
 			initialImages,
 			initialTitle: sessionData?.title ?? null,

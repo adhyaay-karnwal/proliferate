@@ -59,7 +59,23 @@ router.post("/message", async (req, res, next) => {
 		}
 
 		if (body.type === "prompt" && body.content) {
-			const userId = body.userId || req.auth?.userId || "anonymous";
+			const auth = req.auth;
+			if (!auth) {
+				throw new ApiError(401, "Authentication required");
+			}
+
+			// Never trust a caller-supplied userId unless it's a service token explicitly acting on behalf
+			// of a user. For user tokens, derive identity from the token.
+			const userId = auth.source === "service" ? body.userId : auth.userId;
+			if (!userId) {
+				throw new ApiError(
+					auth.source === "service" ? 400 : 401,
+					auth.source === "service"
+						? "userId is required for service prompts"
+						: "User identity required",
+				);
+			}
+
 			await req.hub!.postPrompt(body.content, userId, body.source, body.images);
 			const response = { ok: true };
 			if (idempotencyState) {

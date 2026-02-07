@@ -12,7 +12,6 @@ export type { EnvRequest, EnvRequestKey, SessionStatus } from "./types";
 
 interface UseCodingSessionRuntimeOptions {
 	sessionId: string;
-	userId: string;
 	initialPrompt?: string;
 	initialImages?: string[];
 	initialTitle?: string | null;
@@ -25,7 +24,6 @@ interface UseCodingSessionRuntimeOptions {
  */
 export function useCodingSessionRuntime({
 	sessionId,
-	userId,
 	initialPrompt,
 	initialImages,
 	initialTitle,
@@ -77,19 +75,10 @@ export function useCodingSessionRuntime({
 			initialPromptSentRef.current = true;
 			sendPrompt(
 				initialPrompt,
-				userId,
 				initialImages && initialImages.length > 0 ? initialImages : undefined,
 			);
 		}
-	}, [
-		isInitialized,
-		initialPrompt,
-		initialImages,
-		messages.length,
-		userId,
-		sendPrompt,
-		clientType,
-	]);
+	}, [isInitialized, initialPrompt, initialImages, messages.length, sendPrompt, clientType]);
 
 	// Convert messages for assistant-ui
 	const threadMessages = useMemo(() => {
@@ -112,16 +101,16 @@ export function useCodingSessionRuntime({
 
 			if (!textContent.trim() && images.length === 0) return;
 
-			sendPrompt(textContent, userId, images.length > 0 ? images : undefined);
+			sendPrompt(textContent, images.length > 0 ? images : undefined);
 		},
-		[isConnected, sendPrompt, userId],
+		[isConnected, sendPrompt],
 	);
 
 	// onCancel callback for assistant-ui
 	const onCancel = useCallback(async () => {
 		if (!isConnected) return;
-		sendCancel(userId);
-	}, [isConnected, sendCancel, userId]);
+		sendCancel();
+	}, [isConnected, sendCancel]);
 
 	const runtime = useExternalStoreRuntime({
 		messages: threadMessages,
