@@ -9,6 +9,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/queue ./packages/queue
 COPY packages/environment ./packages/environment
+COPY packages/logger ./packages/logger
 COPY packages/shared ./packages/shared
 COPY packages/gateway-clients ./packages/gateway-clients
 COPY packages/db ./packages/db
@@ -20,6 +21,7 @@ COPY apps/worker ./apps/worker
 RUN pnpm install --frozen-lockfile
 
 # Build workspace packages
+RUN pnpm --filter @proliferate/logger build
 RUN pnpm --filter @proliferate/shared build
 RUN pnpm --filter @proliferate/environment build
 RUN pnpm --filter @proliferate/queue build
