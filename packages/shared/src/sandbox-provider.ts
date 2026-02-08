@@ -20,6 +20,27 @@ export interface FileContent {
 }
 
 /**
+ * A single service command to auto-run after sandbox init.
+ */
+export interface ServiceCommand {
+	name: string;
+	command: string;
+	cwd?: string;
+}
+
+/**
+ * A prebuild-level service command that supports multi-repo workspaces.
+ * Unlike ServiceCommand (per-repo), this includes an optional workspacePath
+ * to target a specific repo directory in multi-repo prebuilds.
+ */
+export interface PrebuildServiceCommand {
+	name: string;
+	command: string;
+	workspacePath?: string;
+	cwd?: string;
+}
+
+/**
  * Specification for a single repo in a multi-repo workspace.
  */
 export interface RepoSpec {
@@ -27,6 +48,7 @@ export interface RepoSpec {
 	token?: string; // GitHub access token for this repo (may differ per installation)
 	workspacePath: string; // Directory name in /workspace/ (e.g., "api", "frontend")
 	repoId?: string; // Database repo ID for reference
+	serviceCommands?: ServiceCommand[];
 }
 
 export interface CreateSandboxOpts {
@@ -48,6 +70,10 @@ export interface CreateSandboxOpts {
 	sshPublicKey?: string;
 	/** Trigger context to write to .proliferate/trigger-context.json */
 	triggerContext?: Record<string, unknown>;
+	/** True if the snapshot includes installed dependencies (prebuild/session snapshots). Gates service command auto-start. */
+	snapshotHasDeps?: boolean;
+	/** Resolved service commands (prebuild-level or fallback from repos). Cross-repo aware. */
+	serviceCommands?: PrebuildServiceCommand[];
 }
 
 export interface CreateSandboxResult {

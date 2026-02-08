@@ -20,6 +20,7 @@ import {
 	parseModelId,
 	resolveSnapshotId,
 } from "@proliferate/shared";
+import { parseServiceCommands, resolveServiceCommands } from "@proliferate/shared/sandbox";
 import type { GatewayEnv } from "./env";
 import { type GitHubIntegration, getGitHubTokenForIntegration } from "./github-auth";
 
@@ -97,6 +98,7 @@ interface PrebuildRepoRow {
 		githubUrl: string;
 		githubRepoName: string;
 		defaultBranch: string | null;
+		serviceCommands?: unknown;
 	} | null;
 }
 
@@ -502,11 +504,13 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 	const repoSpecs: RepoSpec[] = await Promise.all(
 		typedPrebuildRepos.map(async (pr) => {
 			const token = await resolveGitHubToken(env, organizationId, pr.repo!.id, userId);
+			const serviceCommands = parseServiceCommands(pr.repo!.serviceCommands);
 			return {
 				repoUrl: pr.repo!.githubUrl,
 				token,
 				workspacePath: pr.workspacePath,
 				repoId: pr.repo!.id,
+				...(serviceCommands.length > 0 ? { serviceCommands } : {}),
 			};
 		}),
 	);
@@ -517,6 +521,23 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 			tokensPresent: repoSpecs.filter((r) => Boolean(r.token)).length,
 		},
 		"session_creator.create_sandbox.github_tokens",
+	);
+
+	// Derive snapshotHasDeps: true when snapshot includes installed deps.
+	// Repo snapshots (clone-only) don't have deps; prebuild/session/pause snapshots do.
+	const repoSnapshotFallback =
+		prebuildRepoRows.length === 1 &&
+		prebuildRepoRows[0].repo?.repoSnapshotStatus === "ready" &&
+		prebuildRepoRows[0].repo?.repoSnapshotId
+			? prebuildRepoRows[0].repo.repoSnapshotId
+			: null;
+	const snapshotHasDeps = Boolean(snapshotId) && snapshotId !== repoSnapshotFallback;
+
+	// Resolve service commands: prebuild-level first, then per-repo fallback
+	const prebuildSvcRow = await prebuilds.getPrebuildServiceCommands(prebuildId);
+	const resolvedServiceCommands = resolveServiceCommands(
+		prebuildSvcRow?.serviceCommands,
+		repoSpecs,
 	);
 
 	// Build environment variables
@@ -567,6 +588,8 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 			: undefined,
 		sshPublicKey,
 		triggerContext,
+		snapshotHasDeps,
+		serviceCommands: resolvedServiceCommands.length > 0 ? resolvedServiceCommands : undefined,
 	});
 	log.debug(
 		{

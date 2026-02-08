@@ -72,3 +72,50 @@ export function useSearchRepos(query: string, enabled = true) {
 		select: (data) => data.repositories,
 	});
 }
+
+export function useServiceCommands(repoId: string, enabled = true) {
+	return useQuery({
+		...orpc.repos.getServiceCommands.queryOptions({ input: { id: repoId } }),
+		enabled: enabled && !!repoId,
+		select: (data) => data.commands,
+	});
+}
+
+export function useUpdateServiceCommands() {
+	const queryClient = useQueryClient();
+
+	return useMutation(
+		orpc.repos.updateServiceCommands.mutationOptions({
+			onSuccess: (_data, input) => {
+				queryClient.invalidateQueries({
+					queryKey: orpc.repos.getServiceCommands.key({ input: { id: input.id } }),
+				});
+				queryClient.invalidateQueries({ queryKey: orpc.repos.list.key() });
+			},
+		}),
+	);
+}
+
+export function usePrebuildServiceCommands(prebuildId: string, enabled = true) {
+	return useQuery({
+		...orpc.prebuilds.getServiceCommands.queryOptions({ input: { prebuildId } }),
+		enabled: enabled && !!prebuildId,
+		select: (data) => data.commands,
+	});
+}
+
+export function useUpdatePrebuildServiceCommands() {
+	const queryClient = useQueryClient();
+
+	return useMutation(
+		orpc.prebuilds.updateServiceCommands.mutationOptions({
+			onSuccess: (_data, input) => {
+				queryClient.invalidateQueries({
+					queryKey: orpc.prebuilds.getServiceCommands.key({
+						input: { prebuildId: input.prebuildId },
+					}),
+				});
+			},
+		}),
+	);
+}

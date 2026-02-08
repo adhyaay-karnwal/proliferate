@@ -94,6 +94,8 @@ export function CodingSession({
 	const sessionPanelProps: SessionPanelProps | undefined = sessionData
 		? {
 				sessionStatus: sessionData.status ?? undefined,
+				repoId: sessionData.repoId,
+				prebuildId: sessionData.prebuildId,
 				repoName: repoData?.githubRepoName || sessionData.repo?.githubRepoName,
 				branchName: sessionData.branchName,
 				snapshotId: sessionData.sandboxId,
@@ -163,6 +165,7 @@ export function CodingSession({
 								onTogglePreview={() => toggleUrlPreview(previewUrl)}
 								onToggleSessionInfo={() => togglePanel("session-info")}
 								onToggleSnapshots={() => togglePanel("snapshots")}
+								onToggleAutoStart={() => togglePanel("service-commands")}
 								mobileView={mobileView}
 								onToggleMobileView={toggleMobileView}
 							/>
@@ -185,6 +188,7 @@ export function CodingSession({
 								onTogglePreview={() => toggleUrlPreview(previewUrl)}
 								onToggleSessionInfo={() => togglePanel("session-info")}
 								onToggleSnapshots={() => togglePanel("snapshots")}
+								onToggleAutoStart={() => togglePanel("service-commands")}
 								mobileView={mobileView}
 								onToggleMobileView={toggleMobileView}
 							/>

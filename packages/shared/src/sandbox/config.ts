@@ -6,6 +6,8 @@
  */
 
 import { env } from "@proliferate/environment/server";
+import { z } from "zod";
+import type { PrebuildServiceCommand, ServiceCommand } from "../sandbox-provider";
 
 /**
  * Proliferate plugin for OpenCode.
@@ -147,3 +149,76 @@ const timeoutSeconds =
 	Number.isFinite(timeoutSecondsParsed) && timeoutSecondsParsed > 0 ? timeoutSecondsParsed : 3600;
 export const SANDBOX_TIMEOUT_MS = timeoutSeconds * 1000;
 export const SANDBOX_TIMEOUT_SECONDS = timeoutSeconds;
+
+/**
+ * Escape a string for safe use in single-quoted shell arguments.
+ * Handles the only dangerous character in single-quoted strings: the single quote itself.
+ */
+export function shellEscape(s: string): string {
+	return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** Zod schema for validating a single service command from untrusted jsonb. */
+const ServiceCommandSchema = z.object({
+	name: z.string().min(1).max(100),
+	command: z.string().min(1).max(1000),
+	cwd: z.string().max(500).optional(),
+});
+
+/**
+ * Parse and validate service commands from untrusted jsonb.
+ * Returns [] on invalid input — never throws.
+ */
+export function parseServiceCommands(input: unknown): ServiceCommand[] {
+	if (!Array.isArray(input)) return [];
+	const result = z.array(ServiceCommandSchema).max(10).safeParse(input);
+	return result.success ? result.data : [];
+}
+
+/** Zod schema for prebuild-level service commands (includes optional workspacePath). */
+const PrebuildServiceCommandSchema = z.object({
+	name: z.string().min(1).max(100),
+	command: z.string().min(1).max(1000),
+	cwd: z.string().max(500).optional(),
+	workspacePath: z.string().max(500).optional(),
+});
+
+/**
+ * Parse and validate prebuild-level service commands from untrusted jsonb.
+ * Returns [] on invalid input — never throws.
+ */
+export function parsePrebuildServiceCommands(input: unknown): PrebuildServiceCommand[] {
+	if (!Array.isArray(input)) return [];
+	const result = z.array(PrebuildServiceCommandSchema).max(10).safeParse(input);
+	return result.success ? result.data : [];
+}
+
+/**
+ * Resolve service commands for a session.
+ *
+ * Resolution order:
+ * 1. Prebuild-level commands (explicit per-configuration) — if non-empty, use those.
+ * 2. Fallback: per-repo commands merged with workspace context.
+ */
+export function resolveServiceCommands(
+	prebuildCommands: unknown,
+	repoSpecs: Array<{ workspacePath: string; serviceCommands?: ServiceCommand[] }>,
+): PrebuildServiceCommand[] {
+	const prebuildCmds = parsePrebuildServiceCommands(prebuildCommands);
+	if (prebuildCmds.length > 0) return prebuildCmds;
+
+	// Fallback: merge per-repo commands with workspace context
+	const merged: PrebuildServiceCommand[] = [];
+	for (const repo of repoSpecs) {
+		if (!repo.serviceCommands?.length) continue;
+		for (const cmd of repo.serviceCommands) {
+			merged.push({
+				name: cmd.name,
+				command: cmd.command,
+				cwd: cmd.cwd,
+				workspacePath: repo.workspacePath,
+			});
+		}
+	}
+	return merged;
+}
