@@ -108,6 +108,7 @@ mailcatcher --ip 0.0.0.0 || true' > /usr/local/bin/start-services.sh \
 # Create Docker daemon startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
+rm -f /var/run/docker.pid\n\
 dev=$(ip route show default | awk '\''/default/ {print $5}'\'')\n\
 if [ -n "$dev" ]; then\n\
     addr=$(ip addr show dev "$dev" | grep -w inet | awk '\''{print $2}'\'' | cut -d/ -f1)\n\
