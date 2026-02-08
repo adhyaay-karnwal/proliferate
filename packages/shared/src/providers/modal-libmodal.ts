@@ -315,7 +315,7 @@ export class ModalLibmodalProvider implements SandboxProvider {
 		const sandboxName = `base-snapshot-${Date.now()}`;
 		const createStartMs = Date.now();
 		const sandbox = await this.client.sandboxes.create(app, image, {
-			command: ["/usr/local/bin/start-dockerd.sh"],
+			command: ["sh", "-c", "rm -f /var/run/docker.pid && exec /usr/local/bin/start-dockerd.sh"],
 			encryptedPorts: [SANDBOX_PORTS.opencode, SANDBOX_PORTS.preview],
 			unencryptedPorts: [],
 			env: {
@@ -418,7 +418,7 @@ export class ModalLibmodalProvider implements SandboxProvider {
 		const sandboxName = `repo-snapshot-${input.repoId}-${Date.now()}`;
 		const createStartMs = Date.now();
 		const sandbox = await this.client.sandboxes.create(app, sandboxImage, {
-			command: ["/usr/local/bin/start-dockerd.sh"],
+			command: ["sh", "-c", "rm -f /var/run/docker.pid && exec /usr/local/bin/start-dockerd.sh"],
 			encryptedPorts: [],
 			unencryptedPorts: [],
 			env: {
@@ -602,7 +602,7 @@ export class ModalLibmodalProvider implements SandboxProvider {
 			// SSH uses unencryptedPorts for raw TCP (SSH handles its own encryption)
 			const createStartMs = Date.now();
 			const sandbox = await this.client.sandboxes.create(app, sandboxImage, {
-				command: ["/usr/local/bin/start-dockerd.sh"],
+				command: ["sh", "-c", "rm -f /var/run/docker.pid && exec /usr/local/bin/start-dockerd.sh"],
 				encryptedPorts: [SANDBOX_PORTS.opencode, SANDBOX_PORTS.preview],
 				unencryptedPorts: [SANDBOX_PORTS.ssh],
 				env,
