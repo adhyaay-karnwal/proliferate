@@ -3,6 +3,7 @@
 import { GitHubConnectButton } from "@/components/integrations/github-connect-button";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, GithubIcon } from "@/components/ui/icons";
+import { env } from "@proliferate/environment/public";
 
 interface StepGitHubConnectProps {
 	onComplete: () => void;
@@ -10,6 +11,10 @@ interface StepGitHubConnectProps {
 }
 
 export function StepGitHubConnect({ onComplete, hasGitHubConnection }: StepGitHubConnectProps) {
+	const githubAppSlug = env.NEXT_PUBLIC_GITHUB_APP_SLUG;
+	const hasPlaceholderSlug =
+		!githubAppSlug || githubAppSlug === "local" || githubAppSlug === "proliferate-local-dev";
+
 	// Already connected
 	if (hasGitHubConnection) {
 		return (
@@ -81,7 +86,30 @@ export function StepGitHubConnect({ onComplete, hasGitHubConnection }: StepGitHu
 						</p>
 					</div>
 
-					<GitHubConnectButton onSuccess={onComplete} includeIcon={false} />
+					{hasPlaceholderSlug && (
+						<div className="rounded-lg border border-border bg-muted/30 p-4 mb-4">
+							<p className="text-sm font-medium text-foreground">GitHub App not configured</p>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Create a GitHub App before connecting.{" "}
+								<a
+									href="https://github.com/proliferate-ai/proliferate#step-2-create-a-github-app-required-for-repo-access"
+									target="_blank"
+									rel="noreferrer"
+									className="underline text-foreground"
+								>
+									Follow README Step 2
+								</a>{" "}
+								for prefilled setup links and the env vars to add to{" "}
+								<span className="font-mono text-xs">.env</span>.
+							</p>
+						</div>
+					)}
+
+					<GitHubConnectButton
+						onSuccess={onComplete}
+						includeIcon={false}
+						disabled={hasPlaceholderSlug}
+					/>
 				</div>
 			</div>
 		</div>
