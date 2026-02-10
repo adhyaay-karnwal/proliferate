@@ -30,7 +30,7 @@ jobs:
 
       - name: Deploy to Modal
         working-directory: packages/modal-sandbox
-        run: modal deploy main.py
+        run: modal deploy deploy.py
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
