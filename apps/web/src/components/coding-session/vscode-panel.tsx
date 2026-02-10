@@ -62,7 +62,7 @@ export function VscodePanel({ sessionId, onClose }: VscodePanelProps) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					name: "openvscode-server",
-					command: `openvscode-server --port 3901 --without-connection-token --host 127.0.0.1 --server-base-path=${basePath}`,
+					command: `openvscode-server --port 3901 --without-connection-token --host 127.0.0.1 --server-base-path=${basePath} --default-folder /home/user/workspace`,
 				}),
 			});
 
