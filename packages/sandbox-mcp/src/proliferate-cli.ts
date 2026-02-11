@@ -33,6 +33,7 @@ Commands:
   env scrub --spec <json>                          Delete secret env files
 
   actions list                                     List available integrations and actions
+  actions guide --integration <i>                   Show provider usage guide
   actions run --integration <i> --action <a> [--params <json>]  Run an action
   actions grant request --integration <i> --action <a> [--scope session|org] [--max-calls <n>]
                                                    Request a grant
@@ -401,6 +402,21 @@ async function actionsList(): Promise<void> {
 	writeJson(data);
 }
 
+async function actionsGuide(flags: Record<string, string | boolean>): Promise<void> {
+	const integration = requireFlag(flags, "integration");
+	const { status, data } = await gatewayRequest("GET", `/guide/${encodeURIComponent(integration)}`);
+	if (status >= 400) {
+		const body = data as { error?: string; message?: string };
+		fatal(body.error || body.message || `Failed to fetch guide (HTTP ${status})`, 1);
+	}
+	const body = data as { guide?: string };
+	if (body.guide) {
+		process.stdout.write(body.guide);
+	} else {
+		writeJson(data);
+	}
+}
+
 async function actionsRun(flags: Record<string, string | boolean>): Promise<void> {
 	const integration = requireFlag(flags, "integration");
 	const action = requireFlag(flags, "action");
@@ -541,6 +557,9 @@ async function main(): Promise<void> {
 		switch (action) {
 			case "list":
 				await actionsList();
+				break;
+			case "guide":
+				await actionsGuide(flags);
 				break;
 			case "run":
 				await actionsRun(flags);
