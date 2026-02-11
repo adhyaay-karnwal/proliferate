@@ -13,6 +13,7 @@ import type {
 import { ArrowLeft, Grid, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
+import { ActionsPanel } from "./actions-panel";
 import { AutoStartPanel } from "./auto-start-panel";
 import { ChangesPanel } from "./changes-panel";
 import { FileViewer } from "./file-viewer";
@@ -147,6 +148,17 @@ export function RightPanel({ isMobileFullScreen, sessionProps }: RightPanelProps
 	// VS Code panel
 	if (mode.type === "vscode" && sessionProps?.sessionId) {
 		return <VscodePanel sessionId={sessionProps.sessionId} onClose={handleClose} />;
+	}
+
+	// Actions panel
+	if (mode.type === "actions" && sessionProps?.sessionId) {
+		return (
+			<ActionsPanel
+				sessionId={sessionProps.sessionId}
+				activityTick={sessionProps.activityTick ?? 0}
+				onClose={handleClose}
+			/>
+		);
 	}
 
 	// Auto-start panel
