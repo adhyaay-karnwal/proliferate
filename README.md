@@ -35,10 +35,12 @@ This means you can do things like:
 
 ---
 
-## Quick Start (about 5 minutes)
+## Deployment
+
+### Quick Start
 
 <details>
-<summary><strong>⚡ Quick Setup</strong></summary>
+<summary><strong>⚡ Quick start (5 minutes)</strong></summary>
 
 ### 1) Clone and initialize
 
@@ -119,10 +121,7 @@ For webhooks/public domains: [`docs/self-hosting/localhost-vs-public-domain.md`]
 
 </details>
 
----
-
-## Deployment
-
+### Deployment Options
 - **Local (build from source):** `docker compose up -d`
 - **Production (pre-built images):** `docker compose -f docker-compose.prod.yml up -d`
 - **AWS (EKS via Pulumi + Helm):** [`infra/pulumi-k8s/README.md`](infra/pulumi-k8s/README.md)
@@ -131,7 +130,7 @@ For webhooks/public domains: [`docs/self-hosting/localhost-vs-public-domain.md`]
 
 ---
 
-## Development
+**Development**
 
 ```bash
 pnpm install
@@ -144,52 +143,17 @@ Requires Node.js 20+, pnpm, and Docker.
 
 ---
 
-## Technical Docs
+**Community**
+- 💬 Feedback & bugs: [GitHub Issues](https://github.com/proliferate-ai/proliferate/issues)
+- 🤝 Slack community: [Join us on Slack](https://join.slack.com/t/proliferatepublic/shared_invite/zt-3ngfqqttg-qyE2cgQBQQ0klmd9Vbh9Ow)
+- 🗺️ Roadmap: Coming soon
 
-- [Gateway spec](apps/gateway/SPEC.md)
-- [LLM proxy](apps/llm-proxy/README.md)
-- [Environment variables](https://docs.proliferate.com/self-hosting/environment)
-
----
-
-## Contributing
-
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md).
-2. Run checks before opening a PR:
-	```bash
-	pnpm typecheck
-	pnpm lint
-	pnpm test
-	pnpm build
-	```
-3. Open a PR using `.github/PULL_REQUEST_TEMPLATE.md`.
-
----
-
-## Roadmap
-
-- Roadmap issues: [github.com/proliferate-ai/proliferate/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap](https://github.com/proliferate-ai/proliferate/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap)
-- All open issues: [github.com/proliferate-ai/proliferate/issues](https://github.com/proliferate-ai/proliferate/issues)
-
----
-
-## Enterprise
-
+**Enterprise**
 - Enterprise deployment/support: [proliferate.com/enterprise](https://proliferate.com/enterprise)
 - Contact: [pablo@proliferate.com](mailto:pablo@proliferate.com)
 - Self-hosting docs: [docs.proliferate.com](https://docs.proliferate.com)
 
 ---
 
-## Community
-
-- 💬 Feedback and bugs: [GitHub Issues](https://github.com/proliferate-ai/proliferate/issues)
-- 🌐 Product site: [proliferate.com](https://proliferate.com)
-
-## Security
-
-See [SECURITY.md](SECURITY.md).
-
-## License
-
-[MIT](LICENSE)
+Security: See [SECURITY.md](SECURITY.md).
+License:  [MIT](LICENSE)
