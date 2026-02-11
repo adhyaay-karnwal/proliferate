@@ -558,6 +558,7 @@ export const automations = pgTable(
 		enabledTools: jsonb("enabled_tools").default({}),
 		llmAnalysisPrompt: text("llm_analysis_prompt"),
 		notificationChannelId: text("notification_channel_id"),
+		notificationSlackInstallationId: uuid("notification_slack_installation_id"),
 	},
 	(table) => [
 		index("idx_automations_enabled")
@@ -585,6 +586,11 @@ export const automations = pgTable(
 			columns: [table.defaultPrebuildId],
 			foreignColumns: [prebuilds.id],
 			name: "automations_default_prebuild_id_fkey",
+		}).onDelete("set null"),
+		foreignKey({
+			columns: [table.notificationSlackInstallationId],
+			foreignColumns: [slackInstallations.id],
+			name: "automations_notification_slack_installation_id_fkey",
 		}).onDelete("set null"),
 		pgPolicy("Users can delete automations in their org", {
 			as: "permissive",
@@ -1022,6 +1028,7 @@ export const outbox = pgTable(
 		status: text().default("pending").notNull(),
 		attempts: integer("attempts").default(0).notNull(),
 		availableAt: timestamp("available_at", { withTimezone: true, mode: "date" }).defaultNow(),
+		claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
 		lastError: text("last_error"),
 		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
 	},
