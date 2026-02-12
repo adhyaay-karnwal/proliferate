@@ -535,6 +535,51 @@ export const automationsRouter = {
 				runs: claimedRuns.map((run) => mapRunToSchema(run)),
 			};
 		}),
+
+	/**
+	 * Manually resolve a run (e.g., close a needs_human run).
+	 * Allowed from: needs_human, failed, timed_out.
+	 * Target: succeeded or failed.
+	 */
+	resolveRun: orgProcedure
+		.input(
+			z.object({
+				id: z.string().uuid(),
+				runId: z.string().uuid(),
+				outcome: z.enum(["succeeded", "failed"]),
+				reason: z.string().max(500).optional(),
+				comment: z.string().max(2000).optional(),
+			}),
+		)
+		.output(z.object({ success: z.boolean() }))
+		.handler(async ({ input, context }) => {
+			const exists = await automations.automationExists(input.id, context.orgId);
+			if (!exists) {
+				throw new ORPCError("NOT_FOUND", { message: "Automation not found" });
+			}
+
+			try {
+				const updated = await runs.resolveRun({
+					runId: input.runId,
+					orgId: context.orgId,
+					userId: context.user.id,
+					outcome: input.outcome,
+					reason: input.reason,
+					comment: input.comment,
+				});
+				if (!updated) {
+					throw new ORPCError("NOT_FOUND", { message: "Run not found" });
+				}
+				return { success: true };
+			} catch (err) {
+				if (err instanceof runs.RunNotResolvableError) {
+					throw new ORPCError("CONFLICT", {
+						message: err.message,
+					});
+				}
+				throw err;
+			}
+		}),
 };
 
 function mapRunToSchema(run: runs.RunListItem) {

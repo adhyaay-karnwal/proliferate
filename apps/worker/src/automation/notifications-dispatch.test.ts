@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFindRunWithRelations = vi.fn();
 const mockGetSlackInstallationForNotifications = vi.fn();
+const mockRecordOrReplaySideEffect = vi.fn();
 
 vi.mock("@proliferate/environment/server", () => ({
 	env: { NEXT_PUBLIC_APP_URL: "https://app.test" },
@@ -14,6 +15,9 @@ vi.mock("@proliferate/services", () => ({
 	},
 	runs: {
 		findRunWithRelations: (...args: unknown[]) => mockFindRunWithRelations(...args),
+	},
+	sideEffects: {
+		recordOrReplaySideEffect: (...args: unknown[]) => mockRecordOrReplaySideEffect(...args),
 	},
 }));
 
@@ -65,6 +69,8 @@ describe("dispatchRunNotification — installation selection", () => {
 		globalThis.fetch = vi.fn().mockResolvedValue({
 			json: () => Promise.resolve({ ok: true }),
 		}) as unknown as typeof fetch;
+		// Default: side effect not replayed (first time sending)
+		mockRecordOrReplaySideEffect.mockResolvedValue({ row: {}, replayed: false });
 	});
 
 	it("passes slackInstallationId to getSlackInstallationForNotifications when set", async () => {
@@ -155,5 +161,42 @@ describe("dispatchRunNotification — installation selection", () => {
 		expect(fetchCall[1].headers.Authorization).toBe("Bearer xoxb-decrypted-token");
 		const body = JSON.parse(fetchCall[1].body);
 		expect(body.channel).toBe("C_CHANNEL");
+	});
+
+	it("skips notification when side effect was already recorded (idempotent replay)", async () => {
+		const run = makeRun();
+		mockFindRunWithRelations.mockResolvedValue(run);
+		mockRecordOrReplaySideEffect.mockResolvedValue({ row: {}, replayed: true });
+
+		await dispatchRunNotification("run-1", mockLogger);
+
+		// Should NOT call Slack API
+		expect(globalThis.fetch).not.toHaveBeenCalled();
+		expect(mockGetSlackInstallationForNotifications).not.toHaveBeenCalled();
+		expect(mockLogger.info).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: "run-1" }),
+			"Notification already sent (idempotent replay)",
+		);
+	});
+
+	it("records side effect before sending notification", async () => {
+		const run = makeRun();
+		mockFindRunWithRelations.mockResolvedValue(run);
+		mockGetSlackInstallationForNotifications.mockResolvedValue({
+			id: "inst-1",
+			encryptedBotToken: "encrypted",
+		});
+
+		await dispatchRunNotification("run-1", mockLogger);
+
+		expect(mockRecordOrReplaySideEffect).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			runId: "run-1",
+			effectId: "notify:run-1:slack:succeeded",
+			kind: "notification",
+			provider: "slack",
+			requestHash: "C_CHANNEL:succeeded",
+		});
+		expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 	});
 });

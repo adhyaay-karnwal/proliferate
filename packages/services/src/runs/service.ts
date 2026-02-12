@@ -8,6 +8,9 @@ import { enqueueRunNotification } from "../notifications/service";
 import type { TriggerEventRow } from "../triggers/db";
 import * as runsDb from "./db";
 
+/** Default run deadline: 2 hours from creation. */
+export const DEFAULT_RUN_DEADLINE_MS = 2 * 60 * 60 * 1000;
+
 export class RunAlreadyAssignedError extends Error {
 	readonly assignedTo: string;
 
@@ -26,6 +29,8 @@ export interface CreateRunFromTriggerEventInput {
 	rawPayload: Record<string, unknown>;
 	parsedContext: Record<string, unknown> | null;
 	dedupKey: string | null;
+	/** Override deadline TTL in milliseconds. Defaults to DEFAULT_RUN_DEADLINE_MS. */
+	deadlineTtlMs?: number;
 }
 
 export interface CreateRunFromTriggerEventResult {
@@ -37,6 +42,8 @@ export async function createRunFromTriggerEvent(
 	input: CreateRunFromTriggerEventInput,
 ): Promise<CreateRunFromTriggerEventResult> {
 	const db = getDb();
+
+	const deadlineTtlMs = input.deadlineTtlMs ?? DEFAULT_RUN_DEADLINE_MS;
 
 	return db.transaction(async (tx) => {
 		const [event] = await tx
@@ -53,6 +60,7 @@ export async function createRunFromTriggerEvent(
 			})
 			.returning();
 
+		const now = new Date();
 		const [run] = await tx
 			.insert(automationRuns)
 			.values({
@@ -61,6 +69,7 @@ export async function createRunFromTriggerEvent(
 				triggerEventId: event.id,
 				triggerId: input.triggerId,
 				status: "queued",
+				deadlineAt: new Date(now.getTime() + deadlineTtlMs),
 			})
 			.returning();
 
@@ -192,6 +201,81 @@ export async function saveEnrichmentResult(
 	return updated;
 }
 
+/**
+ * Atomically complete enrichment: persist payload, transition to "ready",
+ * and enqueue downstream outbox items in a single transaction.
+ *
+ * This replaces the sequential writes in handleEnrich to eliminate
+ * the inconsistency window between enrichment save and status transition.
+ */
+export interface CompleteEnrichmentInput {
+	runId: string;
+	organizationId: string;
+	enrichmentPayload: Record<string, unknown>;
+}
+
+export async function completeEnrichment(
+	input: CompleteEnrichmentInput,
+): Promise<runsDb.AutomationRunRow | null> {
+	const db = getDb();
+
+	return db.transaction(async (tx) => {
+		const run = await tx.query.automationRuns.findFirst({
+			where: eq(automationRuns.id, input.runId),
+		});
+		if (!run) return null;
+
+		const now = new Date();
+
+		// 1. Persist enrichment + transition to ready
+		const [updated] = await tx
+			.update(automationRuns)
+			.set({
+				enrichmentJson: input.enrichmentPayload,
+				status: "ready",
+				enrichmentCompletedAt: now,
+				lastActivityAt: now,
+				updatedAt: now,
+			})
+			.where(eq(automationRuns.id, input.runId))
+			.returning();
+
+		// 2. Record enrichment_saved event
+		await tx.insert(automationRunEvents).values({
+			runId: input.runId,
+			type: "enrichment_saved",
+			fromStatus: run.status ?? null,
+			toStatus: run.status ?? null,
+			data: { payloadSize: JSON.stringify(input.enrichmentPayload).length },
+		});
+
+		// 3. Record status transition event
+		await tx.insert(automationRunEvents).values({
+			runId: input.runId,
+			type: "status_transition",
+			fromStatus: run.status ?? null,
+			toStatus: "ready",
+			data: null,
+		});
+
+		// 4. Enqueue artifact write
+		await tx.insert(outbox).values({
+			organizationId: input.organizationId,
+			kind: "write_artifacts",
+			payload: { runId: input.runId },
+		});
+
+		// 5. Enqueue execution
+		await tx.insert(outbox).values({
+			organizationId: input.organizationId,
+			kind: "enqueue_execute",
+			payload: { runId: input.runId },
+		});
+
+		return updated ?? null;
+	});
+}
+
 export async function getEnrichmentResult(runId: string): Promise<Record<string, unknown> | null> {
 	const run = await runsDb.findById(runId);
 	if (!run) return null;
@@ -244,6 +328,75 @@ export async function listRunsAssignedToUser(
 	orgId: string,
 ): Promise<runsDb.RunListItem[]> {
 	return runsDb.listRunsAssignedToUser(userId, orgId);
+}
+
+// ============================================
+// Manual run resolution
+// ============================================
+
+/** Statuses from which manual resolution is allowed. */
+const RESOLVABLE_STATUSES = ["needs_human", "failed", "timed_out"];
+
+/** Valid target statuses for manual resolution. */
+const RESOLUTION_OUTCOMES = ["succeeded", "failed"] as const;
+type ResolutionOutcome = (typeof RESOLUTION_OUTCOMES)[number];
+
+export class RunNotResolvableError extends Error {
+	readonly status: string;
+	constructor(status: string) {
+		super(`Run in status '${status}' cannot be manually resolved`);
+		this.status = status;
+	}
+}
+
+export interface ResolveRunInput {
+	runId: string;
+	orgId: string;
+	userId: string;
+	outcome: string;
+	reason?: string;
+	comment?: string;
+}
+
+export async function resolveRun(input: ResolveRunInput): Promise<runsDb.AutomationRunRow | null> {
+	if (!RESOLUTION_OUTCOMES.includes(input.outcome as ResolutionOutcome)) {
+		throw new Error(`Invalid resolution outcome: ${input.outcome}`);
+	}
+
+	const run = await runsDb.findById(input.runId);
+	if (!run) return null;
+
+	if (run.organizationId !== input.orgId) return null;
+
+	if (!RESOLVABLE_STATUSES.includes(run.status)) {
+		throw new RunNotResolvableError(run.status);
+	}
+
+	const fromStatus = run.status;
+	const toStatus = input.outcome;
+
+	const updated = await runsDb.updateRun(input.runId, {
+		status: toStatus,
+		statusReason: `manual_resolution:${input.reason ?? "resolved"}`,
+		completedAt: run.completedAt ?? new Date(),
+	});
+
+	await runsDb.insertRunEvent(input.runId, "manual_resolution", fromStatus, toStatus, {
+		userId: input.userId,
+		reason: input.reason ?? null,
+		comment: input.comment ?? null,
+		previousStatus: fromStatus,
+	});
+
+	if (updated) {
+		try {
+			await enqueueRunNotification(updated.organizationId, input.runId, toStatus);
+		} catch {
+			// Non-critical
+		}
+	}
+
+	return updated;
 }
 
 export async function completeRun(
