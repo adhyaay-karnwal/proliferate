@@ -23,9 +23,38 @@ vi.mock("./db", () => ({
 	listRunsAssignedToUser: vi.fn(),
 }));
 
+const mockEnqueueRunNotification = vi.fn();
+
+// Transaction mocks for resolveRun
+const mockTxFindFirst = vi.fn();
+const mockTxUpdateReturning = vi.fn();
+const mockTxInsertValues = vi.fn().mockReturnValue({});
+
+const mockTx = {
+	query: {
+		automationRuns: {
+			findFirst: mockTxFindFirst,
+		},
+	},
+	update: vi.fn().mockReturnValue({
+		set: vi.fn().mockReturnValue({
+			where: vi.fn().mockReturnValue({
+				returning: mockTxUpdateReturning,
+			}),
+		}),
+	}),
+	insert: vi.fn().mockReturnValue({
+		values: mockTxInsertValues,
+	}),
+};
+
 vi.mock("../db/client", () => ({
-	getDb: vi.fn(),
+	getDb: vi.fn(() => ({
+		transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+	})),
 	eq: vi.fn(),
+	and: vi.fn(),
+	inArray: vi.fn(),
 	automationRuns: {},
 	automationRunEvents: {},
 	outbox: {},
@@ -33,10 +62,16 @@ vi.mock("../db/client", () => ({
 }));
 
 vi.mock("../notifications/service", () => ({
-	enqueueRunNotification: vi.fn(),
+	enqueueRunNotification: mockEnqueueRunNotification,
 }));
 
-const { saveEnrichmentResult, getEnrichmentResult } = await import("./service");
+const {
+	saveEnrichmentResult,
+	getEnrichmentResult,
+	resolveRun,
+	RunNotResolvableError,
+	DEFAULT_RUN_DEADLINE_MS,
+} = await import("./service");
 
 // ============================================
 // Helpers
@@ -51,6 +86,9 @@ function makeRun(overrides: Record<string, unknown> = {}) {
 		status: "enriching",
 		enrichmentJson: null,
 		completionJson: null,
+		completedAt: null,
+		assignedTo: null,
+		assignedAt: null,
 		createdAt: new Date(),
 		updatedAt: new Date(),
 		...overrides,
@@ -154,5 +192,244 @@ describe("getEnrichmentResult", () => {
 		const result = await getEnrichmentResult("run-1");
 
 		expect(result).toBeNull();
+	});
+});
+
+// ============================================
+// resolveRun
+// ============================================
+
+describe("resolveRun", () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	it("resolves a needs_human run to succeeded", async () => {
+		const run = makeRun({ status: "needs_human" });
+		const updated = { ...run, status: "succeeded" };
+		mockTxFindFirst.mockResolvedValue(run);
+		mockTxUpdateReturning.mockResolvedValue([updated]);
+		mockEnqueueRunNotification.mockResolvedValue(undefined);
+
+		const result = await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+			reason: "manually verified",
+			comment: "Looks good after review",
+		});
+
+		expect(result).toBeTruthy();
+		expect(result?.status).toBe("succeeded");
+
+		// Verify conditional update was called
+		const setArg = mockTx.update.mock.results[0].value.set.mock.calls[0][0];
+		expect(setArg.status).toBe("succeeded");
+		expect(setArg.statusReason).toBe("manual_resolution:manually verified");
+
+		// Verify event was inserted
+		const insertArg = mockTxInsertValues.mock.calls[0][0];
+		expect(insertArg.runId).toBe("run-1");
+		expect(insertArg.type).toBe("manual_resolution");
+		expect(insertArg.fromStatus).toBe("needs_human");
+		expect(insertArg.toStatus).toBe("succeeded");
+		expect(insertArg.data.userId).toBe("user-1");
+		expect(insertArg.data.reason).toBe("manually verified");
+		expect(insertArg.data.comment).toBe("Looks good after review");
+	});
+
+	it("resolves a failed run to succeeded", async () => {
+		const run = makeRun({ status: "failed" });
+		const updated = { ...run, status: "succeeded" };
+		mockTxFindFirst.mockResolvedValue(run);
+		mockTxUpdateReturning.mockResolvedValue([updated]);
+		mockEnqueueRunNotification.mockResolvedValue(undefined);
+
+		const result = await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		expect(result).toBeTruthy();
+	});
+
+	it("resolves a timed_out run to failed", async () => {
+		const run = makeRun({ status: "timed_out" });
+		const updated = { ...run, status: "failed" };
+		mockTxFindFirst.mockResolvedValue(run);
+		mockTxUpdateReturning.mockResolvedValue([updated]);
+		mockEnqueueRunNotification.mockResolvedValue(undefined);
+
+		const result = await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "failed",
+			reason: "confirmed broken",
+		});
+
+		expect(result).toBeTruthy();
+		const setArg = mockTx.update.mock.results[0].value.set.mock.calls[0][0];
+		expect(setArg.status).toBe("failed");
+		expect(setArg.statusReason).toBe("manual_resolution:confirmed broken");
+	});
+
+	it("throws RunNotResolvableError for running status", async () => {
+		const run = makeRun({ status: "running" });
+		mockTxFindFirst.mockResolvedValue(run);
+
+		await expect(
+			resolveRun({
+				runId: "run-1",
+				automationId: "auto-1",
+				orgId: "org-1",
+				userId: "user-1",
+				outcome: "succeeded",
+			}),
+		).rejects.toThrow(RunNotResolvableError);
+	});
+
+	it("throws RunNotResolvableError for queued status", async () => {
+		const run = makeRun({ status: "queued" });
+		mockTxFindFirst.mockResolvedValue(run);
+
+		await expect(
+			resolveRun({
+				runId: "run-1",
+				automationId: "auto-1",
+				orgId: "org-1",
+				userId: "user-1",
+				outcome: "succeeded",
+			}),
+		).rejects.toThrow(RunNotResolvableError);
+	});
+
+	it("throws for invalid outcome", async () => {
+		await expect(
+			resolveRun({
+				runId: "run-1",
+				automationId: "auto-1",
+				orgId: "org-1",
+				userId: "user-1",
+				outcome: "needs_human",
+			}),
+		).rejects.toThrow("Invalid resolution outcome");
+	});
+
+	it("returns null for nonexistent run", async () => {
+		mockTxFindFirst.mockResolvedValue(null);
+
+		const result = await resolveRun({
+			runId: "nonexistent",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null when org does not match", async () => {
+		const run = makeRun({ organizationId: "org-other" });
+		mockTxFindFirst.mockResolvedValue(run);
+
+		const result = await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		expect(result).toBeNull();
+		expect(mockTx.update).not.toHaveBeenCalled();
+	});
+
+	it("returns null when automationId does not match", async () => {
+		const run = makeRun({ automationId: "auto-other" });
+		mockTxFindFirst.mockResolvedValue(run);
+
+		const result = await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		expect(result).toBeNull();
+		expect(mockTx.update).not.toHaveBeenCalled();
+	});
+
+	it("preserves existing completedAt if already set", async () => {
+		const existingDate = new Date("2025-01-01");
+		const run = makeRun({ status: "needs_human", completedAt: existingDate });
+		const updated = { ...run, status: "succeeded" };
+		mockTxFindFirst.mockResolvedValue(run);
+		mockTxUpdateReturning.mockResolvedValue([updated]);
+		mockEnqueueRunNotification.mockResolvedValue(undefined);
+
+		await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		const setArg = mockTx.update.mock.results[0].value.set.mock.calls[0][0];
+		expect(setArg.completedAt).toBe(existingDate);
+	});
+
+	it("uses default reason when none provided", async () => {
+		const run = makeRun({ status: "needs_human" });
+		const updated = { ...run, status: "succeeded" };
+		mockTxFindFirst.mockResolvedValue(run);
+		mockTxUpdateReturning.mockResolvedValue([updated]);
+		mockEnqueueRunNotification.mockResolvedValue(undefined);
+
+		await resolveRun({
+			runId: "run-1",
+			automationId: "auto-1",
+			orgId: "org-1",
+			userId: "user-1",
+			outcome: "succeeded",
+		});
+
+		const insertArg = mockTxInsertValues.mock.calls[0][0];
+		expect(insertArg.data.reason).toBeNull();
+		expect(insertArg.data.comment).toBeNull();
+	});
+
+	it("throws RunNotResolvableError on concurrent status change (empty update)", async () => {
+		const run = makeRun({ status: "needs_human" });
+		mockTxFindFirst.mockResolvedValue(run);
+		// Conditional update returns empty — status changed between read and write
+		mockTxUpdateReturning.mockResolvedValue([]);
+
+		await expect(
+			resolveRun({
+				runId: "run-1",
+				automationId: "auto-1",
+				orgId: "org-1",
+				userId: "user-1",
+				outcome: "succeeded",
+			}),
+		).rejects.toThrow(RunNotResolvableError);
+	});
+});
+
+// ============================================
+// DEFAULT_RUN_DEADLINE_MS
+// ============================================
+
+describe("DEFAULT_RUN_DEADLINE_MS", () => {
+	it("is 2 hours in milliseconds", () => {
+		expect(DEFAULT_RUN_DEADLINE_MS).toBe(2 * 60 * 60 * 1000);
 	});
 });

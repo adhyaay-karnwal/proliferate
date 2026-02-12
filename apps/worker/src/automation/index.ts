@@ -53,11 +53,11 @@ export function startAutomationWorkers(logger: Logger): AutomationWorkers {
 	const executeQueue = createAutomationExecuteQueue(connection);
 
 	const enrichWorker = createAutomationEnrichWorker(async (job) => {
-		await handleEnrich(job.data.runId);
+		await handleEnrich(job.data.runId, logger);
 	});
 
 	const executeWorker = createAutomationExecuteWorker(async (job) => {
-		await handleExecute(job.data.runId, syncClient);
+		await handleExecute(job.data.runId, syncClient, logger);
 	});
 
 	const outboxInterval = setInterval(() => {
@@ -85,20 +85,29 @@ export async function stopAutomationWorkers(workers: AutomationWorkers): Promise
 	await workers.executeWorker.close();
 }
 
-export async function handleEnrich(runId: string): Promise<void> {
+export async function handleEnrich(runId: string, logger?: Logger): Promise<void> {
 	const workerId = `automation-enrich:${process.pid}`;
 	const run = await runs.claimRun(runId, ["queued", "enriching"], workerId, LEASE_TTL_MS);
 	if (!run) return;
+
+	const log = logger?.child({
+		runId,
+		automationId: run.automationId,
+		leaseOwner: workerId,
+		leaseVersion: run.leaseVersion,
+	});
 
 	if (run.status !== "enriching") {
 		await runs.transitionRunStatus(runId, "enriching", {
 			enrichmentStartedAt: new Date(),
 			lastActivityAt: new Date(),
 		});
+		log?.info({ fromStatus: run.status, toStatus: "enriching" }, "Run status transition");
 	}
 
 	const context = await runs.findRunWithRelations(runId);
 	if (!context?.triggerEvent || !context.trigger || !context.automation) {
+		log?.warn({ errorClass: "missing_context" }, "Enrichment aborted: missing context");
 		await runs.markRunFailed({
 			runId,
 			reason: "missing_context",
@@ -111,29 +120,28 @@ export async function handleEnrich(runId: string): Promise<void> {
 	try {
 		const enrichment = buildEnrichmentPayload(context);
 
-		await runs.saveEnrichmentResult({
+		// Atomic enrichment completion: persist payload, transition to ready,
+		// and enqueue downstream outbox items in a single transaction.
+		await runs.completeEnrichment({
 			runId,
+			organizationId: run.organizationId,
 			enrichmentPayload: enrichment as unknown as Record<string, unknown>,
 		});
 
-		await outbox.enqueueOutbox({
-			organizationId: run.organizationId,
-			kind: "write_artifacts",
-			payload: { runId },
-		});
-
-		await runs.transitionRunStatus(runId, "ready", {
-			enrichmentCompletedAt: new Date(),
-			lastActivityAt: new Date(),
-		});
-
-		await outbox.enqueueOutbox({
-			organizationId: run.organizationId,
-			kind: "enqueue_execute",
-			payload: { runId },
-		});
+		log?.info(
+			{
+				fromStatus: "enriching",
+				toStatus: "ready",
+				triggerEventId: context.triggerEvent.id,
+			},
+			"Enrichment completed (atomic)",
+		);
 	} catch (err) {
 		if (err instanceof EnrichmentError) {
+			log?.warn(
+				{ errorClass: "enrichment_failed", errorMessage: err.message },
+				"Enrichment failed",
+			);
 			await runs.markRunFailed({
 				runId,
 				reason: "enrichment_failed",
@@ -146,13 +154,25 @@ export async function handleEnrich(runId: string): Promise<void> {
 	}
 }
 
-async function handleExecute(runId: string, syncClient: SyncClient): Promise<void> {
+async function handleExecute(
+	runId: string,
+	syncClient: SyncClient,
+	logger?: Logger,
+): Promise<void> {
 	const workerId = `automation-execute:${process.pid}`;
 	const run = await runs.claimRun(runId, ["ready"], workerId, LEASE_TTL_MS);
 	if (!run) return;
 
+	const log = logger?.child({
+		runId,
+		automationId: run.automationId,
+		leaseOwner: workerId,
+		leaseVersion: run.leaseVersion,
+	});
+
 	const context = await runs.findRunWithRelations(runId);
 	if (!context || !context.automation || !context.triggerEvent) {
+		log?.warn({ errorClass: "missing_context" }, "Execute aborted: missing context");
 		await runs.markRunFailed({
 			runId,
 			reason: "missing_context",
@@ -183,6 +203,10 @@ async function handleExecute(runId: string, syncClient: SyncClient): Promise<voi
 		(target.type !== "selected" && target.prebuildId);
 
 	if (!hasTarget) {
+		log?.warn(
+			{ errorClass: "missing_prebuild", targetType: target.type },
+			"Execute aborted: no valid target",
+		);
 		await runs.markRunFailed({
 			runId,
 			reason: "missing_prebuild",
@@ -196,6 +220,17 @@ async function handleExecute(runId: string, syncClient: SyncClient): Promise<voi
 		executionStartedAt: new Date(),
 		lastActivityAt: new Date(),
 	});
+
+	log?.info(
+		{
+			fromStatus: "ready",
+			toStatus: "running",
+			triggerEventId: context.triggerEvent.id,
+			targetType: target.type,
+			targetReason: target.reason,
+		},
+		"Run status transition",
+	);
 
 	let sessionId = run.sessionId ?? null;
 	if (!sessionId) {
@@ -246,6 +281,8 @@ async function handleExecute(runId: string, syncClient: SyncClient): Promise<voi
 			sessionId,
 			processedAt: new Date(),
 		});
+
+		log?.info({ sessionId }, "Session created for run");
 	}
 
 	if (!run.promptSentAt) {
@@ -259,6 +296,7 @@ async function handleExecute(runId: string, syncClient: SyncClient): Promise<voi
 			promptSentAt: new Date(),
 			lastActivityAt: new Date(),
 		});
+		log?.info({ sessionId }, "Prompt sent to session");
 	}
 }
 

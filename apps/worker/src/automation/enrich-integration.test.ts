@@ -5,15 +5,13 @@ const {
 	mockTransitionRunStatus,
 	mockFindRunWithRelations,
 	mockMarkRunFailed,
-	mockSaveEnrichmentResult,
-	mockEnqueueOutbox,
+	mockCompleteEnrichment,
 } = vi.hoisted(() => ({
 	mockClaimRun: vi.fn(),
 	mockTransitionRunStatus: vi.fn(),
 	mockFindRunWithRelations: vi.fn(),
 	mockMarkRunFailed: vi.fn(),
-	mockSaveEnrichmentResult: vi.fn(),
-	mockEnqueueOutbox: vi.fn(),
+	mockCompleteEnrichment: vi.fn(),
 }));
 
 vi.mock("@proliferate/environment/server", () => ({
@@ -44,14 +42,15 @@ vi.mock("@proliferate/services", () => ({
 		markDispatched: vi.fn(),
 		markFailed: vi.fn(),
 		listPendingOutbox: vi.fn(),
-		enqueueOutbox: mockEnqueueOutbox,
+		enqueueOutbox: vi.fn(),
 	},
 	runs: {
 		claimRun: mockClaimRun,
 		transitionRunStatus: mockTransitionRunStatus,
 		findRunWithRelations: mockFindRunWithRelations,
 		markRunFailed: mockMarkRunFailed,
-		saveEnrichmentResult: mockSaveEnrichmentResult,
+		completeEnrichment: mockCompleteEnrichment,
+		saveEnrichmentResult: vi.fn(),
 		updateRun: vi.fn(),
 		listStaleRunningRuns: vi.fn().mockResolvedValue([]),
 	},
@@ -78,6 +77,7 @@ function makeRun(overrides: Record<string, unknown> = {}) {
 		organizationId: "org-1",
 		automationId: "auto-1",
 		status: "queued",
+		leaseVersion: 1,
 		...overrides,
 	};
 }
@@ -129,7 +129,7 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 }
 
 describe("handleEnrich (integration)", () => {
-	let handleEnrich: (runId: string) => Promise<void>;
+	let handleEnrich: (runId: string, logger?: unknown) => Promise<void>;
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
@@ -137,14 +137,14 @@ describe("handleEnrich (integration)", () => {
 		mockTransitionRunStatus.mockResolvedValue({});
 		mockFindRunWithRelations.mockResolvedValue(null);
 		mockMarkRunFailed.mockResolvedValue({});
-		mockSaveEnrichmentResult.mockResolvedValue({});
-		mockEnqueueOutbox.mockResolvedValue(undefined);
+		mockCompleteEnrichment.mockResolvedValue({});
 
 		const mod = await import("./index");
-		handleEnrich = (mod as { handleEnrich: (runId: string) => Promise<void> }).handleEnrich;
+		handleEnrich = (mod as { handleEnrich: (runId: string, logger?: unknown) => Promise<void> })
+			.handleEnrich;
 	});
 
-	it("success flow: claim → enrich → save → artifacts → ready → execute", async () => {
+	it("success flow: claim → enrich → atomic complete (save + ready + outbox)", async () => {
 		const run = makeRun();
 		const context = makeContext();
 
@@ -173,37 +173,15 @@ describe("handleEnrich (integration)", () => {
 		// 3. Loaded context
 		expect(mockFindRunWithRelations).toHaveBeenCalledWith("run-1");
 
-		// 4. Saved enrichment
-		expect(mockSaveEnrichmentResult).toHaveBeenCalledWith({
+		// 4. Atomic enrichment completion (replaces sequential writes)
+		expect(mockCompleteEnrichment).toHaveBeenCalledWith({
 			runId: "run-1",
+			organizationId: "org-1",
 			enrichmentPayload: expect.objectContaining({
 				version: 1,
 				provider: "linear",
 				summary: { title: "Fix login bug", description: "Users cannot log in" },
 			}),
-		});
-
-		// 5. Enqueued write_artifacts
-		expect(mockEnqueueOutbox).toHaveBeenCalledWith({
-			organizationId: "org-1",
-			kind: "write_artifacts",
-			payload: { runId: "run-1" },
-		});
-
-		// 6. Transitioned to ready
-		expect(mockTransitionRunStatus).toHaveBeenCalledWith(
-			"run-1",
-			"ready",
-			expect.objectContaining({
-				enrichmentCompletedAt: expect.any(Date),
-			}),
-		);
-
-		// 7. Enqueued execute
-		expect(mockEnqueueOutbox).toHaveBeenCalledWith({
-			organizationId: "org-1",
-			kind: "enqueue_execute",
-			payload: { runId: "run-1" },
 		});
 	});
 
@@ -231,7 +209,7 @@ describe("handleEnrich (integration)", () => {
 			stage: "enrichment",
 			errorMessage: "Missing automation, trigger, or trigger event context",
 		});
-		expect(mockSaveEnrichmentResult).not.toHaveBeenCalled();
+		expect(mockCompleteEnrichment).not.toHaveBeenCalled();
 	});
 
 	it("marks failed when parsedContext has no title (EnrichmentError)", async () => {
@@ -258,13 +236,13 @@ describe("handleEnrich (integration)", () => {
 				stage: "enrichment",
 			}),
 		);
-		expect(mockSaveEnrichmentResult).not.toHaveBeenCalled();
+		expect(mockCompleteEnrichment).not.toHaveBeenCalled();
 	});
 
 	it("propagates transient errors for BullMQ retry", async () => {
 		mockClaimRun.mockResolvedValueOnce(makeRun());
 		mockFindRunWithRelations.mockResolvedValueOnce(makeContext());
-		mockSaveEnrichmentResult.mockRejectedValueOnce(new Error("DB connection lost"));
+		mockCompleteEnrichment.mockRejectedValueOnce(new Error("DB connection lost"));
 
 		await expect(handleEnrich("run-1")).rejects.toThrow("DB connection lost");
 
@@ -286,12 +264,12 @@ describe("handleEnrich (integration)", () => {
 		);
 		expect(enrichingCalls).toHaveLength(0);
 
-		// Should still transition to "ready" and complete the flow
-		expect(mockTransitionRunStatus).toHaveBeenCalledWith(
-			"run-1",
-			"ready",
-			expect.objectContaining({ enrichmentCompletedAt: expect.any(Date) }),
+		// Should still use atomic completeEnrichment
+		expect(mockCompleteEnrichment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				runId: "run-1",
+				organizationId: "org-1",
+			}),
 		);
-		expect(mockSaveEnrichmentResult).toHaveBeenCalled();
 	});
 });

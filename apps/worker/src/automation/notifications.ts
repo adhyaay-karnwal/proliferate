@@ -7,7 +7,7 @@
 
 import { env } from "@proliferate/environment/server";
 import type { Logger } from "@proliferate/logger";
-import { integrations, runs } from "@proliferate/services";
+import { integrations, runs, sideEffects } from "@proliferate/services";
 import { decrypt, getEncryptionKey } from "@proliferate/shared/crypto";
 
 /** Timeout for outbound Slack API calls (ms). */
@@ -231,9 +231,31 @@ export async function dispatchRunNotification(runId: string, logger: Logger): Pr
 	};
 
 	for (const channel of channels) {
+		const effectId = `notify:${runId}:${channel.name}:${run.status}`;
+
+		// Check idempotency: skip if this notification was already sent
+		const existing = await sideEffects.findSideEffect(run.organizationId, effectId);
+		if (existing) {
+			logger.info(
+				{ runId, channel: channel.name, status: run.status, effectId },
+				"Notification already sent (idempotent replay)",
+			);
+			continue;
+		}
+
 		try {
 			const result = await channel.send(notification, logger);
 			if (result.sent) {
+				// Record side effect only after successful send so transient
+				// failures do not permanently suppress the notification on retry.
+				await sideEffects.recordOrReplaySideEffect({
+					organizationId: run.organizationId,
+					runId,
+					effectId,
+					kind: "notification",
+					provider: channel.name,
+					requestHash: `${channelId}:${run.status}`,
+				});
 				logger.info(
 					{ runId, channel: channel.name, status: run.status },
 					"Notification dispatched",

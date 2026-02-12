@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFindRunWithRelations = vi.fn();
 const mockGetSlackInstallationForNotifications = vi.fn();
+const mockFindSideEffect = vi.fn();
+const mockRecordOrReplaySideEffect = vi.fn();
 
 vi.mock("@proliferate/environment/server", () => ({
 	env: { NEXT_PUBLIC_APP_URL: "https://app.test" },
@@ -14,6 +16,10 @@ vi.mock("@proliferate/services", () => ({
 	},
 	runs: {
 		findRunWithRelations: (...args: unknown[]) => mockFindRunWithRelations(...args),
+	},
+	sideEffects: {
+		findSideEffect: (...args: unknown[]) => mockFindSideEffect(...args),
+		recordOrReplaySideEffect: (...args: unknown[]) => mockRecordOrReplaySideEffect(...args),
 	},
 }));
 
@@ -65,6 +71,9 @@ describe("dispatchRunNotification — installation selection", () => {
 		globalThis.fetch = vi.fn().mockResolvedValue({
 			json: () => Promise.resolve({ ok: true }),
 		}) as unknown as typeof fetch;
+		// Default: no existing side effect (first time sending)
+		mockFindSideEffect.mockResolvedValue(null);
+		mockRecordOrReplaySideEffect.mockResolvedValue({ row: {}, replayed: false });
 	});
 
 	it("passes slackInstallationId to getSlackInstallationForNotifications when set", async () => {
@@ -155,5 +164,66 @@ describe("dispatchRunNotification — installation selection", () => {
 		expect(fetchCall[1].headers.Authorization).toBe("Bearer xoxb-decrypted-token");
 		const body = JSON.parse(fetchCall[1].body);
 		expect(body.channel).toBe("C_CHANNEL");
+	});
+
+	it("skips notification when side effect already exists (idempotent)", async () => {
+		const run = makeRun();
+		mockFindRunWithRelations.mockResolvedValue(run);
+		// Side effect already recorded — notification was sent previously
+		mockFindSideEffect.mockResolvedValue({ id: "se-1", effectId: "notify:run-1:slack:succeeded" });
+
+		await dispatchRunNotification("run-1", mockLogger);
+
+		// Should NOT call Slack API or record again
+		expect(globalThis.fetch).not.toHaveBeenCalled();
+		expect(mockGetSlackInstallationForNotifications).not.toHaveBeenCalled();
+		expect(mockRecordOrReplaySideEffect).not.toHaveBeenCalled();
+		expect(mockLogger.info).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: "run-1" }),
+			"Notification already sent (idempotent replay)",
+		);
+	});
+
+	it("records side effect only after successful send", async () => {
+		const run = makeRun();
+		mockFindRunWithRelations.mockResolvedValue(run);
+		mockGetSlackInstallationForNotifications.mockResolvedValue({
+			id: "inst-1",
+			encryptedBotToken: "encrypted",
+		});
+
+		await dispatchRunNotification("run-1", mockLogger);
+
+		// findSideEffect is called first (pre-check)
+		expect(mockFindSideEffect).toHaveBeenCalledWith("org-1", "notify:run-1:slack:succeeded");
+		// Then send happens (fetch called)
+		expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+		// Then side effect is recorded after successful send
+		expect(mockRecordOrReplaySideEffect).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			runId: "run-1",
+			effectId: "notify:run-1:slack:succeeded",
+			kind: "notification",
+			provider: "slack",
+			requestHash: "C_CHANNEL:succeeded",
+		});
+	});
+
+	it("does not record side effect when send fails (allows retry)", async () => {
+		const run = makeRun();
+		mockFindRunWithRelations.mockResolvedValue(run);
+		mockGetSlackInstallationForNotifications.mockResolvedValue({
+			id: "inst-1",
+			encryptedBotToken: "encrypted",
+		});
+		// Slack API returns error
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			json: () => Promise.resolve({ ok: false, error: "channel_not_found" }),
+		}) as unknown as typeof fetch;
+
+		await expect(dispatchRunNotification("run-1", mockLogger)).rejects.toThrow("channel_not_found");
+
+		// Side effect must NOT be recorded so retries can try again
+		expect(mockRecordOrReplaySideEffect).not.toHaveBeenCalled();
 	});
 });
