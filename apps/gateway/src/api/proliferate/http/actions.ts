@@ -67,6 +67,7 @@ interface CachedConnectorTools {
 
 const CONNECTOR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const connectorToolCache = new Map<string, CachedConnectorTools[]>();
+const connectorRefreshInFlight = new Map<string, Promise<CachedConnectorTools[]>>();
 
 // Periodic cleanup
 setInterval(() => {
@@ -113,36 +114,49 @@ async function listSessionConnectorTools(sessionId: string): Promise<CachedConne
 		return cached;
 	}
 
-	const ctx = await loadSessionConnectors(sessionId);
-	if (!ctx || ctx.connectors.length === 0) return [];
+	// Deduplicate concurrent refreshes for the same session
+	const inFlight = connectorRefreshInFlight.get(sessionId);
+	if (inFlight) return inFlight;
 
-	const results = await Promise.allSettled(
-		ctx.connectors.map(async (connector) => {
-			const secret = await resolveConnectorSecret(ctx.orgId, connector);
-			if (!secret) {
-				logger.warn(
-					{ connectorId: connector.id, secretKey: connector.auth.secretKey },
-					"Connector secret not found, skipping",
-				);
-				return {
-					connectorId: connector.id,
-					connectorName: connector.name,
-					actions: [] as actions.ActionDefinition[],
-				};
-			}
-			return actions.connectors.listConnectorTools(connector, secret);
-		}),
-	);
+	const refreshPromise = (async () => {
+		const ctx = await loadSessionConnectors(sessionId);
+		if (!ctx || ctx.connectors.length === 0) return [];
 
-	const toolLists = results
-		.filter(
-			(r): r is PromiseFulfilledResult<actions.connectors.ConnectorToolList> =>
-				r.status === "fulfilled",
-		)
-		.map((r) => ({ ...r.value, expiresAt: Date.now() + CONNECTOR_CACHE_TTL_MS }));
+		const results = await Promise.allSettled(
+			ctx.connectors.map(async (connector) => {
+				const secret = await resolveConnectorSecret(ctx.orgId, connector);
+				if (!secret) {
+					logger.warn(
+						{ connectorId: connector.id, secretKey: connector.auth.secretKey },
+						"Connector secret not found, skipping",
+					);
+					return {
+						connectorId: connector.id,
+						connectorName: connector.name,
+						actions: [] as actions.ActionDefinition[],
+					};
+				}
+				return actions.connectors.listConnectorTools(connector, secret);
+			}),
+		);
 
-	connectorToolCache.set(sessionId, toolLists);
-	return toolLists;
+		const toolLists = results
+			.filter(
+				(r): r is PromiseFulfilledResult<actions.connectors.ConnectorToolList> =>
+					r.status === "fulfilled",
+			)
+			.map((r) => ({ ...r.value, expiresAt: Date.now() + CONNECTOR_CACHE_TTL_MS }));
+
+		connectorToolCache.set(sessionId, toolLists);
+		return toolLists;
+	})();
+
+	connectorRefreshInFlight.set(sessionId, refreshPromise);
+	try {
+		return await refreshPromise;
+	} finally {
+		connectorRefreshInFlight.delete(sessionId);
+	}
 }
 
 /**
