@@ -13,7 +13,7 @@
 - Sentry and Linear metadata queries (projects, teams, labels, etc.)
 - Integration disconnect with orphaned-repo cleanup
 - Gateway-side GitHub token resolution
-- Org-scoped MCP connector catalog lifecycle (planned target architecture)
+- Org-scoped MCP connector catalog lifecycle (CRUD, validation, settings UI)
 
 ### Out of Scope
 - What repos/automations/sessions **do** with connections at runtime — see `repos-prebuilds.md`, `automations-runs.md`, `sessions-gateway.md`
@@ -31,7 +31,7 @@ Integrations is the external credential/connectivity control plane. Implemented 
 - **Integration** — A stored OAuth connection scoped to an organization. Provider is either `nango` (Sentry/Linear/GitHub-via-Nango) or `github-app` (GitHub App installation). Lifecycle: `active` → `expired`/`revoked`/`deleted`/`suspended`.
 - **Slack Installation** — A workspace-level Slack bot installation, stored separately from `integrations` because Slack uses its own OAuth flow with encrypted bot tokens. Lifecycle: `active` → `revoked`.
 - **Connection binding** — A junction row linking an integration to a repo, automation, or session. Cascades on delete.
-- **Connector (planned)** — An org-scoped MCP endpoint configuration + auth mapping used by Actions to discover and invoke connector-backed tools.
+- **Connector** — An org-scoped MCP endpoint configuration (`org_connectors` table) with auth mapping, used by Actions to discover and invoke connector-backed tools. Managed via Settings → Connectors UI.
 
 **Key invariants:**
 - One integration record per `(connection_id, organization_id)` pair (unique constraint).
@@ -64,10 +64,11 @@ Integrations have a `visibility` field: `org` (visible to all org members) or `p
 - Key detail agents get wrong: Visibility filtering is applied in `listIntegrations`, not at the DB query level.
 - Reference: `packages/services/src/integrations/mapper.ts:filterByVisibility`
 
-### Connector Catalog (Planned)
-Connector-backed Actions are currently persisted on prebuilds as a transitional implementation. The target ownership is this subsystem: org-level connector CRUD, validation, and metadata belong to Integrations, while actual tool invocation/risk/approval remains in Actions.
-- Key detail agents get wrong: this planned catalog does not replace OAuth integrations; it complements them. OAuth integrations still resolve tokens via Nango/GitHub App, while connectors resolve org secrets for MCP auth.
-- Reference: `docs/specs/external-tools-rfc.md`, `docs/specs/actions.md`
+### Connector Catalog
+Org-scoped MCP connector definitions are stored in the `org_connectors` table and managed through Integrations CRUD routes. Each connector defines a remote MCP server endpoint, auth method (org secret reference or custom header), and optional risk policy. The gateway loads enabled connectors by org at session runtime and merges their tools into `/actions/available`.
+- Key detail agents get wrong: connectors complement OAuth integrations; they do not replace them. OAuth integrations resolve tokens via Nango/GitHub App, while connectors resolve org secrets for MCP auth.
+- Key detail agents get wrong: connector execution (risk/approval/grants/audit) is still owned by Actions (`actions.md`). Integrations owns the catalog lifecycle only.
+- Reference: `packages/services/src/connectors/`, `apps/web/src/server/routers/integrations.ts`, `apps/web/src/app/settings/connectors/page.tsx`
 
 ---
 
@@ -95,8 +96,19 @@ apps/web/src/lib/
 ├── slack.ts                     # Slack API helpers (OAuth, postMessage, revoke)
 └── github-app.ts                # GitHub App JWT + installation verification
 
+packages/services/src/connectors/
+├── index.ts                     # Module exports
+├── db.ts                        # Drizzle queries for org_connectors table
+└── service.ts                   # Business logic (list, create, update, delete, toConnectorConfig)
+
 apps/web/src/server/routers/
-└── integrations.ts              # oRPC router (all integration endpoints)
+└── integrations.ts              # oRPC router (all integration + connector endpoints)
+
+apps/web/src/app/settings/
+└── connectors/page.tsx          # Org-level connector management UI
+
+apps/web/src/hooks/
+└── use-org-connectors.ts        # React hooks for org-level connector CRUD
 
 apps/web/src/app/api/integrations/
 ├── github/callback/route.ts     # GitHub App installation callback
@@ -110,7 +122,7 @@ apps/gateway/src/lib/
 └── github-auth.ts               # Gateway-side GitHub token resolution
 ```
 
-Connector catalog migration note: no dedicated Integrations connector DB/service module exists yet. Current connector persistence is `prebuilds.connectors` (`packages/services/src/prebuilds/db.ts`) and is planned to move here.
+Connector catalog: `packages/services/src/connectors/` owns DB access and business logic. `org_connectors` table stores connector definitions with backfill migration from legacy `prebuilds.connectors` JSONB.
 
 ---
 
@@ -159,6 +171,22 @@ session_connections
 ├── integration_id      UUID NOT NULL FK(integrations) CASCADE
 └── created_at          TIMESTAMPTZ
     UNIQUE(session_id, integration_id)
+```
+
+```sql
+org_connectors
+├── id                  UUID PK DEFAULT gen_random_uuid()
+├── organization_id     TEXT NOT NULL FK(organization) CASCADE
+├── name                TEXT NOT NULL
+├── transport           TEXT NOT NULL DEFAULT 'remote_http'
+├── url                 TEXT NOT NULL
+├── auth                JSONB NOT NULL           -- { type: 'none' | 'secret' | 'custom_header', secretKey?, headerName?, headerValue? }
+├── risk_policy         JSONB                    -- { defaultRisk: 'read' | 'write' | 'danger' }
+├── enabled             BOOLEAN NOT NULL DEFAULT true
+├── created_by          TEXT FK(user)
+├── created_at          TIMESTAMPTZ DEFAULT now()
+└── updated_at          TIMESTAMPTZ DEFAULT now()
+    INDEX(organization_id)
 ```
 
 ```sql

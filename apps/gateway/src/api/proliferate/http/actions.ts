@@ -15,8 +15,8 @@
  */
 
 import { createLogger } from "@proliferate/logger";
-import { actions, integrations, orgs, prebuilds, secrets, sessions } from "@proliferate/services";
-import { type ConnectorConfig, parsePrebuildConnectors } from "@proliferate/shared";
+import { actions, connectors, integrations, orgs, secrets, sessions } from "@proliferate/services";
+import type { ConnectorConfig } from "@proliferate/shared";
 import { Router, type Router as RouterType } from "express";
 import type { HubManager } from "../../../hub";
 import type { GatewayEnv } from "../../../lib/env";
@@ -80,18 +80,16 @@ setInterval(() => {
 }, CONNECTOR_CACHE_TTL_MS);
 
 /**
- * Load enabled connector configs for a session (session → prebuildId → connectors JSONB).
+ * Load enabled connector configs for a session (session → org → org_connectors).
  */
 async function loadSessionConnectors(
 	sessionId: string,
-): Promise<{ connectors: ConnectorConfig[]; orgId: string; prebuildId: string } | null> {
+): Promise<{ connectors: ConnectorConfig[]; orgId: string } | null> {
 	const session = await sessions.findByIdInternal(sessionId);
-	if (!session?.prebuildId) return null;
+	if (!session) return null;
 
-	const row = await prebuilds.getPrebuildConnectors(session.prebuildId);
-	const connectors = parsePrebuildConnectors(row?.connectors).filter((c) => c.enabled);
-
-	return { connectors, orgId: session.organizationId, prebuildId: session.prebuildId };
+	const enabled = await connectors.listEnabledConnectors(session.organizationId);
+	return { connectors: enabled, orgId: session.organizationId };
 }
 
 /**
@@ -160,24 +158,26 @@ async function listSessionConnectorTools(sessionId: string): Promise<CachedConne
 }
 
 /**
- * Resolve a connector config by its ID from a session's prebuild.
+ * Resolve a connector config by its ID from the org connector catalog.
  */
 async function resolveConnector(
 	sessionId: string,
 	connectorId: string,
 ): Promise<{ connector: ConnectorConfig; orgId: string; secret: string }> {
-	const ctx = await loadSessionConnectors(sessionId);
-	if (!ctx) throw new ApiError(400, "Session has no prebuild");
+	const session = await sessions.findByIdInternal(sessionId);
+	if (!session) throw new ApiError(404, "Session not found");
 
-	const connector = ctx.connectors.find((c) => c.id === connectorId);
-	if (!connector) throw new ApiError(400, `Unknown connector: ${connectorId}`);
+	const connector = await connectors.getConnector(connectorId, session.organizationId);
+	if (!connector || !connector.enabled) {
+		throw new ApiError(400, `Unknown connector: ${connectorId}`);
+	}
 
-	const secret = await resolveConnectorSecret(ctx.orgId, connector);
+	const secret = await resolveConnectorSecret(session.organizationId, connector);
 	if (!secret) {
 		throw new ApiError(500, `Secret "${connector.auth.secretKey}" not found for connector`);
 	}
 
-	return { connector, orgId: ctx.orgId, secret };
+	return { connector, orgId: session.organizationId, secret };
 }
 
 // ============================================

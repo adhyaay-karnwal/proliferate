@@ -448,9 +448,9 @@ Org connector catalog (integrations-owned) → Gateway resolves by org/session r
 
 **Graceful degradation:** If an MCP server is unreachable during `tools/list`, its tools simply don't appear in the available list. Other connectors and static adapters continue working.
 
-**CRUD surface:** Current routes live in `apps/web/src/server/routers/prebuilds.ts` (`getConnectors`, `updateConnectors`, `validateConnector`). Planned steady-state is org-level connector CRUD under Integrations-owned routes/UI.
+**CRUD surface:** Org-level connector CRUD lives in `apps/web/src/server/routers/integrations.ts` (`listConnectors`, `createConnector`, `updateConnector`, `deleteConnector`, `validateConnector`). Management UI is at Settings → Connectors (`apps/web/src/app/settings/connectors/page.tsx`).
 
-**Files touched:** `packages/services/src/actions/connectors/`, `packages/shared/src/connectors.ts`, `packages/services/src/secrets/service.ts`, `packages/services/src/prebuilds/db.ts`, `apps/gateway/src/api/proliferate/http/actions.ts`, `apps/web/src/server/routers/prebuilds.ts`
+**Files touched:** `packages/services/src/actions/connectors/`, `packages/services/src/connectors/`, `packages/shared/src/connectors.ts`, `packages/services/src/secrets/service.ts`, `apps/gateway/src/api/proliferate/http/actions.ts`, `apps/web/src/server/routers/integrations.ts`
 
 ---
 
@@ -460,8 +460,7 @@ Org connector catalog (integrations-owned) → Gateway resolves by org/session r
 |---|---|---|---|
 | `integrations.md` | Actions → Integrations | `integrations.getToken()` (`packages/services/src/integrations/tokens.ts:getToken`) | Token resolution for adapter execution |
 | `integrations.md` | Actions → Integrations | `sessions.listSessionConnections()` (`packages/services/src/sessions/db.ts`) | Discovers which integrations are available for a session |
-| `integrations.md` | Actions ↔ Integrations | *(Planned)* org-scoped connector catalog + resolver | Target source of truth for connector definitions consumed by Actions |
-| `repos-prebuilds.md` | Actions ↔ Prebuilds | `prebuilds.connectors` JSONB, `getPrebuildConnectors()`, `parsePrebuildConnectors()` | Current/legacy connector storage path, resolved by gateway at session runtime via `loadSessionConnectors()` |
+| `integrations.md` | Actions ← Integrations | `connectors.listEnabledConnectors(orgId)`, `connectors.getConnector(id, orgId)` | Org-scoped connector catalog; gateway loads enabled connectors by org at session runtime via `loadSessionConnectors()` |
 | `secrets-environment.md` | Actions → Secrets | `secrets.resolveSecretValue(orgId, key)` | Resolves + decrypts org secrets for connector auth at call time |
 | `sessions-gateway.md` | Actions → Gateway | WebSocket broadcast events | `action_approval_request` (pending write), `action_completed` (execution success/failure, includes `status` field), `action_approval_result` (denial only) |
 | `agent-contract.md` | Contract → Actions | `ACTIONS_BOOTSTRAP` in sandbox config | Bootstrap guide written to `.proliferate/actions-guide.md` |
@@ -498,9 +497,9 @@ Org connector catalog (integrations-owned) → Gateway resolves by org/session r
 - [ ] **No "danger" actions defined** — the risk level exists in types and service logic but no adapter declares any danger-level action. Impact: the deny-by-default path is untested in production. Expected fix: define danger actions when destructive operations are added (e.g., delete resources).
 - [ ] **In-memory rate limiting** — the per-session invocation rate limit (60/min) uses an in-memory Map in the gateway. Multiple gateway instances do not share counters. Impact: effective limit is multiplied by instance count. Expected fix: move to Redis-based rate limiting.
 - [ ] **No grant expiry sweeper** — grants with `expiresAt` are filtered out at query time but never cleaned up. Expired grant rows accumulate. Impact: minor DB bloat. Expected fix: add periodic cleanup job similar to invocation sweeper.
-- [x] **Static adapter registry** — addressed by MCP connector system (§6.11). Remote MCP connectors are configured without adapter code changes. Current scope is prebuild-level; target scope is org-wide catalog.
+- [x] **Static adapter registry** — addressed by MCP connector system (§6.11). Remote MCP connectors are configured without adapter code changes. Scope is org-wide catalog (`org_connectors` table).
 - [ ] **Grant rollback is best-effort** — if invocation approval fails after grant creation, the grant revocation is attempted but failures are silently caught. Impact: orphaned grants may exist in rare edge cases. Expected fix: wrap in a transaction or add cleanup sweep.
 - [ ] **No pagination on grants list** — `listActiveGrants` and `listGrantsByOrg` return all matching rows with no limit/offset. Impact: could return large result sets for orgs with many grants. Expected fix: add pagination parameters.
 - [x] **Connector 404 session recovery** — addressed. `callConnectorTool` retries once on 404 session invalidation by re-initializing a fresh connection. The SDK handles `Mcp-Session-Id` internally within each connection lifecycle. Source: `packages/services/src/actions/connectors/client.ts`.
-- [x] **Dedicated connector management UI** — addressed for current prebuild-scoped storage. Settings panel "Tools" tab provides add/edit/remove/validate flow with presets, secret picker, and inline validation diagnostics. Source: `apps/web/src/components/coding-session/connectors-panel.tsx`, `apps/web/src/hooks/use-connectors.ts`.
-- [ ] **Connector scope is prebuild-scoped** — connector availability differs across prebuilds in the same org. Impact: repetitive setup and confusing org-level governance. Expected fix: migrate connector catalog + management surface to org scope (`integrations.md`), and load connectors by org in gateway.
+- [x] **Dedicated connector management UI** — addressed at org scope. Settings → Connectors page provides add/edit/remove/validate flow with presets, org secret picker, and inline validation diagnostics. Source: `apps/web/src/app/settings/connectors/page.tsx`, `apps/web/src/hooks/use-org-connectors.ts`.
+- [x] **Connector scope is org-scoped** — addressed. Connectors are stored in the `org_connectors` table, managed via Integrations CRUD routes, and loaded by org in the gateway. Backfill migration (`0022_org_connectors.sql`) copied legacy prebuild-scoped connectors to org scope.
