@@ -10,6 +10,7 @@
 import { createLogger } from "@proliferate/logger";
 import { cli, prebuilds } from "@proliferate/services";
 import type { SandboxProvider } from "@proliferate/shared";
+import { ApiError } from "../middleware";
 
 const logger = createLogger({ service: "gateway" }).child({ module: "prebuild-resolver" });
 
@@ -179,7 +180,7 @@ async function createManagedPrebuildRecord(
 	const repoRows = await prebuilds.getReposForManagedPrebuild(organizationId, specificRepoIds);
 
 	if (!repoRows || repoRows.length === 0) {
-		throw new Error("No repos found for organization");
+		throw new ApiError(422, "No repos found for organization");
 	}
 
 	// Create prebuild record

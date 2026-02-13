@@ -218,7 +218,7 @@ export class SlackClient extends AsyncClient<
 						encryptedBotToken,
 						channelId,
 						threadTs,
-						"I can't start a session yet - no repos have been added. Please add a repo in the web app first.",
+						`I can't start a session yet — no repos have been added. Connect a repo at ${APP_URL}/dashboard/integrations to get started.`,
 						this.logger,
 					);
 				} else {
