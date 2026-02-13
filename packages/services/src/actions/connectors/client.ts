@@ -2,8 +2,16 @@
  * MCP connector client.
  *
  * Connects to remote MCP servers via Streamable HTTP transport,
- * lists their tools, and executes tool calls. Each operation creates
- * a fresh client connection (stateless per invocation).
+ * lists their tools, and executes tool calls.
+ *
+ * Connection model: stateless per call. Each `listConnectorTools` or
+ * `callConnectorTool` invocation creates a fresh transport + client,
+ * initializes, performs the operation, and closes. The SDK's
+ * `StreamableHTTPClientTransport` handles `Mcp-Session-Id` internally
+ * within a single connection lifecycle.
+ *
+ * If a `callConnectorTool` fails with a 404 (session invalidation),
+ * the client re-initializes once with a fresh connection and retries.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client";
@@ -95,11 +103,16 @@ export function extractToolCallContent(result: McpCallToolResultShape): unknown 
 function createTransport(
 	config: ConnectorConfig,
 	resolvedSecret: string,
+	sessionId?: string,
 ): StreamableHTTPClientTransport {
 	const headers: Record<string, string> =
 		config.auth.type === "custom_header"
 			? { [config.auth.headerName]: resolvedSecret }
 			: { Authorization: `Bearer ${resolvedSecret}` };
+
+	if (sessionId) {
+		headers["Mcp-Session-Id"] = sessionId;
+	}
 
 	return new StreamableHTTPClientTransport(new URL(config.url), {
 		requestInit: { headers },
@@ -107,15 +120,26 @@ function createTransport(
 }
 
 // ============================================
+// Error classification
+// ============================================
+
+function isSessionInvalidation(err: unknown): boolean {
+	if (err instanceof Error) {
+		return err.message.includes("404") || err.message.includes("session");
+	}
+	return false;
+}
+
+// ============================================
 // Public API
 // ============================================
 
 /**
- * List tools from a remote MCP connector.
+ * List tools from a remote MCP connector (throwing variant).
  * Connects, initializes, calls tools/list, then closes.
- * On error: returns empty actions array and logs a warning.
+ * Throws on error — caller decides how to handle failures.
  */
-export async function listConnectorTools(
+export async function listConnectorToolsOrThrow(
 	config: ConnectorConfig,
 	resolvedSecret: string,
 ): Promise<ConnectorToolList> {
@@ -133,18 +157,15 @@ export async function listConnectorTools(
 			),
 		]);
 
-		const actions: ActionDefinition[] = (result.tools ?? []).map((tool) => ({
+		const toolActions: ActionDefinition[] = (result.tools ?? []).map((tool) => ({
 			name: tool.name,
 			description: tool.description ?? "",
 			riskLevel: deriveRiskLevel(tool.name, tool.annotations, config.riskPolicy),
 			params: schemaToParams(tool.inputSchema),
 		}));
 
-		log.info({ toolCount: actions.length }, "Listed connector tools");
-		return { connectorId: config.id, connectorName: config.name, actions };
-	} catch (err) {
-		log.warn({ err }, "Failed to list connector tools");
-		return { connectorId: config.id, connectorName: config.name, actions: [] };
+		log.info({ toolCount: toolActions.length }, "Listed connector tools");
+		return { connectorId: config.id, connectorName: config.name, actions: toolActions };
 	} finally {
 		try {
 			await client.close();
@@ -155,8 +176,32 @@ export async function listConnectorTools(
 }
 
 /**
+ * List tools from a remote MCP connector (safe variant).
+ * Connects, initializes, calls tools/list, then closes.
+ * On error: returns empty actions array and logs a warning.
+ * Used by the gateway for runtime discovery where failures should not propagate.
+ */
+export async function listConnectorTools(
+	config: ConnectorConfig,
+	resolvedSecret: string,
+): Promise<ConnectorToolList> {
+	const log = logger().child({ connectorId: config.id, connectorName: config.name });
+	try {
+		return await listConnectorToolsOrThrow(config, resolvedSecret);
+	} catch (err) {
+		log.warn({ err }, "Failed to list connector tools");
+		return { connectorId: config.id, connectorName: config.name, actions: [] };
+	}
+}
+
+/**
  * Call a tool on a remote MCP connector.
- * Creates a fresh connection for each call.
+ * Creates a connection, executes the call, and closes.
+ *
+ * If the server issues an `Mcp-Session-Id` during initialize and
+ * later responds with 404 (session invalidation), the client
+ * re-initializes once and retries the call.
+ *
  * Throws on error (caller handles failure).
  */
 export async function callConnectorTool(
@@ -166,28 +211,42 @@ export async function callConnectorTool(
 	args: Record<string, unknown>,
 ): Promise<ConnectorCallResult> {
 	const log = logger().child({ connectorId: config.id, toolName });
-	const transport = createTransport(config, resolvedSecret);
-	const client = new Client({ name: "proliferate-gateway", version: "1.0.0" });
+
+	const attempt = async (mcpSessionId?: string): Promise<ConnectorCallResult> => {
+		const transport = createTransport(config, resolvedSecret, mcpSessionId);
+		const client = new Client({ name: "proliferate-gateway", version: "1.0.0" });
+
+		try {
+			await client.connect(transport);
+
+			const result = await Promise.race([
+				client.callTool({ name: toolName, arguments: args }),
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error("tools/call timeout")), TOOL_CALL_TIMEOUT_MS),
+				),
+			]);
+			const content = extractToolCallContent(result as McpCallToolResultShape);
+
+			const isError = "isError" in result && result.isError === true;
+			log.info({ isError }, "Connector tool call complete");
+			return { content, isError };
+		} finally {
+			try {
+				await client.close();
+			} catch {
+				// best-effort close
+			}
+		}
+	};
 
 	try {
-		await client.connect(transport);
-
-		const result = await Promise.race([
-			client.callTool({ name: toolName, arguments: args }),
-			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error("tools/call timeout")), TOOL_CALL_TIMEOUT_MS),
-			),
-		]);
-		const content = extractToolCallContent(result as McpCallToolResultShape);
-
-		const isError = "isError" in result && result.isError === true;
-		log.info({ isError }, "Connector tool call complete");
-		return { content, isError };
-	} finally {
-		try {
-			await client.close();
-		} catch {
-			// best-effort close
+		return await attempt();
+	} catch (err) {
+		// On 404 session invalidation: re-initialize without stale session ID and retry once
+		if (isSessionInvalidation(err)) {
+			log.info("Session invalidated (404), re-initializing and retrying");
+			return await attempt();
 		}
+		throw err;
 	}
 }
