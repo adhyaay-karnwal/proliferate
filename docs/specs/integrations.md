@@ -13,22 +13,25 @@
 - Sentry and Linear metadata queries (projects, teams, labels, etc.)
 - Integration disconnect with orphaned-repo cleanup
 - Gateway-side GitHub token resolution
+- Org-scoped MCP connector catalog lifecycle (planned target architecture)
 
 ### Out of Scope
 - What repos/automations/sessions **do** with connections at runtime — see `repos-prebuilds.md`, `automations-runs.md`, `sessions-gateway.md`
 - Slack async client and message handling — see `automations-runs.md`
 - Action adapters for Linear/Sentry — see `actions.md`
+- Connector execution lifecycle (risk/approval/grants/audit) — see `actions.md`
 - Trigger providers for GitHub/Linear/Sentry — see `triggers.md`
 - GitHub App webhook dispatch to triggers — see `triggers.md`
 
 ### Mental Model
 
-Integrations is the OAuth credential store. Every external service Proliferate connects to — GitHub, Sentry, Linear, Slack — follows the same pattern: the user initiates an OAuth flow, credentials are stored (either in Nango or directly in the DB for Slack), and a record in the `integrations` or `slack_installations` table links the credential to an organization. Downstream consumers (sessions, automations, triggers, actions) bind to these records via junction tables and resolve live OAuth tokens at runtime through the token resolution layer.
+Integrations is the external credential/connectivity control plane. Implemented today: OAuth-backed integrations (GitHub, Sentry, Linear, Slack) where users complete OAuth flows and downstream systems resolve live tokens at runtime. Planned direction: add an org-scoped MCP connector catalog in this domain so connector-backed Actions are configured once per org and reused across all sessions/automations by default.
 
 **Core entities:**
 - **Integration** — A stored OAuth connection scoped to an organization. Provider is either `nango` (Sentry/Linear/GitHub-via-Nango) or `github-app` (GitHub App installation). Lifecycle: `active` → `expired`/`revoked`/`deleted`/`suspended`.
 - **Slack Installation** — A workspace-level Slack bot installation, stored separately from `integrations` because Slack uses its own OAuth flow with encrypted bot tokens. Lifecycle: `active` → `revoked`.
 - **Connection binding** — A junction row linking an integration to a repo, automation, or session. Cascades on delete.
+- **Connector (planned)** — An org-scoped MCP endpoint configuration + auth mapping used by Actions to discover and invoke connector-backed tools.
 
 **Key invariants:**
 - One integration record per `(connection_id, organization_id)` pair (unique constraint).
@@ -60,6 +63,11 @@ A generic layer that abstracts over GitHub App installation tokens and Nango OAu
 Integrations have a `visibility` field: `org` (visible to all org members) or `private` (visible only to the creator). The `filterByVisibility` mapper enforces this at the service layer.
 - Key detail agents get wrong: Visibility filtering is applied in `listIntegrations`, not at the DB query level.
 - Reference: `packages/services/src/integrations/mapper.ts:filterByVisibility`
+
+### Connector Catalog (Planned)
+Connector-backed Actions are currently persisted on prebuilds as a transitional implementation. The target ownership is this subsystem: org-level connector CRUD, validation, and metadata belong to Integrations, while actual tool invocation/risk/approval remains in Actions.
+- Key detail agents get wrong: this planned catalog does not replace OAuth integrations; it complements them. OAuth integrations still resolve tokens via Nango/GitHub App, while connectors resolve org secrets for MCP auth.
+- Reference: `docs/specs/external-tools-rfc.md`, `docs/specs/actions.md`
 
 ---
 
@@ -101,6 +109,8 @@ apps/web/src/app/api/webhooks/
 apps/gateway/src/lib/
 └── github-auth.ts               # Gateway-side GitHub token resolution
 ```
+
+Connector catalog migration note: no dedicated Integrations connector DB/service module exists yet. Current connector persistence is `prebuilds.connectors` (`packages/services/src/prebuilds/db.ts`) and is planned to move here.
 
 ---
 
@@ -461,6 +471,18 @@ function handleNangoError(err: unknown, operation: string): never {
 
 **Files touched:** `apps/web/src/app/api/webhooks/github-app/route.ts`, `packages/services/src/integrations/db.ts:updateStatusByGitHubInstallationId`
 
+### 6.14 Org-Scoped Connector Catalog — `Planned`
+
+**What it does:** Defines a single org-level source of truth for MCP connector configuration used by Actions discovery/invocation.
+
+**Expected behavior:**
+1. Admin/owner configures connectors once per org in Integrations settings.
+2. Config stores endpoint/auth/risk defaults using the shared `ConnectorConfig` schema (`packages/shared/src/connectors.ts`).
+3. Gateway Actions loads enabled connectors by org/session context, not by prebuild.
+4. Connector-backed actions continue using the same `connector:<uuid>` integration prefix and existing approval/audit pipeline in `actions.md`.
+
+**Current state:** Connector CRUD exists under prebuild routes (`apps/web/src/server/routers/prebuilds.ts`) and prebuild JSONB storage (`prebuilds.connectors`) as a transitional implementation.
+
 ---
 
 ## 7. Cross-Cutting Concerns
@@ -473,6 +495,7 @@ function handleNangoError(err: unknown, operation: string): never {
 | `triggers.md` | Triggers → This | `integrations.triggers` relation, `findActiveByGitHubInstallationId()` | Trigger-service resolves integration for webhook dispatch |
 | `triggers.md` | Triggers → This | `findByConnectionIdAndProvider()`, `updateStatus()` | Nango webhook handler updates connection status on token lifecycle events |
 | `actions.md` | Actions → This | `getToken()` | Action adapters resolve tokens for API calls |
+| `actions.md` | Actions ↔ This | *(Planned)* org-scoped connector catalog read path | Target source for connector-backed action discovery |
 | `auth-orgs.md` | This → Auth | `orgProcedure` middleware | All integration routes require org membership |
 | `secrets-environment.md` | This → Secrets | `getEnvVarName()` | Token env var naming for sandbox injection |
 
@@ -508,3 +531,4 @@ function handleNangoError(err: unknown, operation: string): never {
 - [ ] **No token refresh error handling** — If Nango returns an expired/invalid token, the error propagates directly to the caller. No automatic retry or re-auth flow exists. — Medium impact for long-running sessions.
 - [ ] **Visibility filtering in memory** — `filterByVisibility` loads all org integrations then filters in JS. Fine at current scale but won't scale if an org has hundreds of integrations. — Low impact.
 - [ ] **Orphaned repo detection is O(n)** — `handleOrphanedRepos` iterates all non-orphaned repos and runs a count query per repo. Should be a single query. — Low impact at current scale.
+- [ ] **Org connector catalog not migrated yet** — connector persistence and UI are still prebuild-scoped (`prebuilds.connectors`, prebuild routes/panel). Impact: repetitive per-prebuild setup and no single org-level connector management surface. Expected fix: move connector CRUD/storage ownership into Integrations.
