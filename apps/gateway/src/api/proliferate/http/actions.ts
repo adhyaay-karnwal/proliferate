@@ -705,7 +705,7 @@ export function createActionsRouter(_env: GatewayEnv, hubManager: HubManager): R
 
 				if (isConnectorAction) {
 					// ── Connector execution path ──
-					// Use invocation's session ID (not route session) to resolve the correct prebuild
+					// Use invocation's session ID (not route session) to resolve the correct org/session context
 					const connectorId = invocation.integration.slice("connector:".length);
 					const { connector, secret } = await resolveConnector(invocation.sessionId, connectorId);
 					const callResult = await actions.connectors.callConnectorTool(
@@ -724,7 +724,7 @@ export function createActionsRouter(_env: GatewayEnv, hubManager: HubManager): R
 					actionResult = callResult.content;
 				} else {
 					// ── Static adapter execution path ──
-					const connections = await sessions.listSessionConnections(req.proliferateSessionId!);
+					const connections = await sessions.listSessionConnections(invocation.sessionId);
 					const conn = connections.find((c) => c.integrationId === invocation.integrationId);
 					if (!conn?.integration) {
 						throw new Error("Integration no longer available");
@@ -754,7 +754,7 @@ export function createActionsRouter(_env: GatewayEnv, hubManager: HubManager): R
 				const completed = await actions.markCompleted(invocationId, actionResult, durationMs);
 
 				// Broadcast completion
-				const hub = await tryGetHub(req.proliferateSessionId!);
+				const hub = await tryGetHub(invocation.sessionId);
 				hub?.broadcastMessage({
 					type: "action_completed",
 					payload: {
@@ -774,7 +774,7 @@ export function createActionsRouter(_env: GatewayEnv, hubManager: HubManager): R
 				const errorMsg = err instanceof Error ? err.message : String(err);
 				await actions.markFailed(invocationId, errorMsg, durationMs);
 
-				const hub = await tryGetHub(req.proliferateSessionId!);
+				const hub = await tryGetHub(invocation.sessionId);
 				hub?.broadcastMessage({
 					type: "action_completed",
 					payload: {
@@ -817,7 +817,7 @@ export function createActionsRouter(_env: GatewayEnv, hubManager: HubManager): R
 			}
 
 			// Broadcast denial
-			const hub = await tryGetHub(req.proliferateSessionId!);
+			const hub = await tryGetHub(invocation.sessionId);
 			hub?.broadcastMessage({
 				type: "action_approval_result",
 				payload: {

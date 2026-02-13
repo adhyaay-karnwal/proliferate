@@ -114,7 +114,7 @@ export default function ConnectorsPage() {
 		<SettingsSection title="Connectors">
 			<p className="text-sm text-muted-foreground -mt-1 mb-2">
 				Connect remote MCP servers to give your agents access to external tools. All sessions in
-				this workspace share these connectors.
+				this organization share these connectors.
 			</p>
 			<SettingsCard>
 				{list.length === 0 && !showAdd ? (
@@ -312,6 +312,8 @@ function ConnectorForm({
 
 	const validateMutation = useValidateOrgConnector();
 	const { data: orgSecrets } = useSecrets();
+	const secretOptions = orgSecrets ?? [];
+	const hasListedSecret = secretOptions.some((s) => s.key === secretKey);
 
 	const buildAuth = useCallback((): ConnectorAuth => {
 		if (authType === "custom_header") {
@@ -408,18 +410,30 @@ function ConnectorForm({
 				</div>
 				<div>
 					<Label className="text-xs">Secret</Label>
-					<Select value={secretKey} onValueChange={setSecretKey}>
+					<Select
+						value={hasListedSecret ? secretKey : "__custom"}
+						onValueChange={(value) => {
+							if (value !== "__custom") setSecretKey(value);
+						}}
+					>
 						<SelectTrigger className="h-8 text-sm mt-1">
 							<SelectValue placeholder="Select a secret..." />
 						</SelectTrigger>
 						<SelectContent>
-							{(orgSecrets ?? []).map((s) => (
+							{secretOptions.map((s) => (
 								<SelectItem key={s.key} value={s.key}>
 									{s.key}
 								</SelectItem>
 							))}
+							<SelectItem value="__custom">Custom secret key</SelectItem>
 						</SelectContent>
 					</Select>
+					<Input
+						value={secretKey}
+						onChange={(e) => setSecretKey(e.target.value)}
+						placeholder="Type or paste secret key name"
+						className="h-8 text-sm mt-2"
+					/>
 				</div>
 			</div>
 

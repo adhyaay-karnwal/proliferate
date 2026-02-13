@@ -6,7 +6,7 @@
 
 import { logger } from "@/lib/logger";
 import { ORPCError } from "@orpc/server";
-import { orgs, prebuilds } from "@proliferate/services";
+import { prebuilds } from "@proliferate/services";
 import {
 	CreatePrebuildInputSchema,
 	PrebuildSchema,
@@ -15,15 +15,6 @@ import {
 import { parsePrebuildServiceCommands } from "@proliferate/shared/sandbox";
 import { z } from "zod";
 import { orgProcedure } from "./middleware";
-
-async function requireAdminOrOwner(userId: string, orgId: string) {
-	const role = await orgs.getUserRole(userId, orgId);
-	if (role !== "admin" && role !== "owner") {
-		throw new ORPCError("FORBIDDEN", {
-			message: "Admin or owner role required",
-		});
-	}
-}
 
 const log = logger.child({ handler: "prebuilds" });
 
