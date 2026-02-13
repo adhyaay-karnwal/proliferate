@@ -15,7 +15,7 @@ import { useRepos } from "@/hooks/use-repos";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard";
 import { Check, Layers, Plus, Terminal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CreateSnapshotContent } from "./snapshot-selector";
 
 interface EnvironmentPickerProps {
@@ -32,6 +32,27 @@ export function EnvironmentPicker({ disabled }: EnvironmentPickerProps) {
 
 	const allRepos = repos ?? [];
 	const multiRepoConfigs = prebuilds?.filter((p) => (p.prebuildRepos?.length ?? 0) >= 2) ?? [];
+
+	// Clear stale persisted selections when data loads (e.g. repo/prebuild was deleted)
+	useEffect(() => {
+		if (!repos) return;
+		if (selectedRepoId && !repos.some((r) => r.id === selectedRepoId)) {
+			// Repo no longer exists — clear both
+			setSelectedRepo(null);
+			setSelectedSnapshot(null);
+		} else if (selectedRepoId && selectedSnapshotId) {
+			// Repo exists — sync snapshot to repo's current prebuild
+			const repo = repos.find((r) => r.id === selectedRepoId);
+			if (repo && selectedSnapshotId !== repo.prebuildId) {
+				setSelectedSnapshot(repo.prebuildId ?? null);
+			}
+		} else if (selectedSnapshotId && !selectedRepoId) {
+			// Multi-repo config — check if it still exists
+			if (prebuilds && !prebuilds.some((c) => c.id === selectedSnapshotId)) {
+				setSelectedSnapshot(null);
+			}
+		}
+	}, [repos, prebuilds, selectedRepoId, selectedSnapshotId, setSelectedRepo, setSelectedSnapshot]);
 
 	// Find display name for the trigger
 	const selectedRepo = allRepos.find((r) => r.id === selectedRepoId);
