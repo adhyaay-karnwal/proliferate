@@ -1,0 +1,34 @@
+# VPS Sandbox Host Configuration
+#
+# Use this to run a VPS sandbox host locally for testing,
+# or deploy to a VPS for production use.
+#
+# Usage:
+#   docker compose -f packages/vps-sandbox/docker-compose.yml up -d
+
+services:
+  vps-sandbox-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    privileged: true  # Required for Docker-in-Docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - vps_sandbox_data:/var/shadow/sandboxes
+      - ./ssh:/root/.ssh:ro  # Mount SSH keys for git access
+    ports:
+      - "3000-3100:3000-3100"  # OpenCode ports (100 concurrent sessions)
+      - "8080-8180:8080-8180"  # Preview ports
+      - "4000-4100:4000-4100"  # MCP ports
+      - "2222:22"              # SSH access
+    environment:
+      - DOCKER_TLS_CERTDIR=
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "docker", "ps"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  vps_sandbox_data:
