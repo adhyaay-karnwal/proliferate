@@ -1632,11 +1632,13 @@ export const cliGithubSelections = pgTable(
 // ============================================
 
 /**
- * LLM spend cursor for tracking processing position.
- * Single row table (global cursor).
+ * LLM spend cursor — per-org partitioned.
  */
 export const llmSpendCursors = pgTable("llm_spend_cursors", {
-	id: text().primaryKey().default("global").notNull(),
+	organizationId: text("organization_id")
+		.primaryKey()
+		.notNull()
+		.references(() => organization.id, { onDelete: "cascade" }),
 	lastStartTime: timestamp("last_start_time", { withTimezone: true, mode: "date" }).notNull(),
 	lastRequestId: text("last_request_id"),
 	recordsProcessed: integer("records_processed").default(0).notNull(),

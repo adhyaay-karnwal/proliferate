@@ -85,8 +85,9 @@ packages/shared/src/billing/
 
 packages/services/src/billing/
 ├── index.ts                    # Re-exports all billing service modules
-├── db.ts                       # Billing event queries, LLM cursor ops, LiteLLM spend reads
-├── shadow-balance.ts           # Atomic deduct/add/reconcile/initialize shadow balance
+├── db.ts                       # Billing event queries, per-org LLM cursor ops
+├── litellm-api.ts              # LiteLLM Admin REST API client (GET /spend/logs/v2)
+├── shadow-balance.ts           # Atomic deduct/add/bulk-deduct/reconcile/initialize shadow balance
 ├── metering.ts                 # Compute metering cycle, sandbox liveness, finalization
 ├── outbox.ts                   # Outbox worker: retry failed Autumn posts
 ├── org-pause.ts                # Bulk pause/terminate sessions, overage handling
@@ -94,7 +95,7 @@ packages/services/src/billing/
 └── snapshot-limits.ts          # Snapshot quota checking and cleanup
 
 packages/db/src/schema/
-└── billing.ts                  # billingEvents, llmSpendCursors, billingReconciliations tables
+└── billing.ts                  # billingEvents, llmSpendCursors (per-org), billingReconciliations tables
 
 apps/web/src/server/routers/
 └── billing.ts                  # oRPC routes: getInfo, updateSettings, activatePlan, buyCredits
@@ -133,13 +134,14 @@ Indexes: (org_id, created_at), (status, next_retry_at), (org_id, event_type, cre
 ```
 
 ```
-llm_spend_cursors
-├── id                   TEXT PK DEFAULT 'global'
+llm_spend_cursors (per-org, replaces global singleton)
+├── organization_id      TEXT PK FK → organization.id (CASCADE)
 ├── last_start_time      TIMESTAMPTZ NOT NULL
 ├── last_request_id      TEXT
 ├── records_processed    INT DEFAULT 0
 └── synced_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 ```
+
 
 ```
 billing_reconciliations
@@ -236,6 +238,8 @@ Billing is **fail-closed**: if org lookup fails, billing state is unreadable, or
 6. Checks overdraft cap (500 credits); if exceeded in grace, transitions to `exhausted`.
 7. Updates `shadow_balance`, `billing_state`, and grace fields atomically.
 
+**`bulkDeductShadowBalance(orgId, events)`:** Batch variant for high-throughput LLM spend sync. Opens exactly one transaction → `FOR UPDATE` org row → bulk `INSERT INTO billing_events ON CONFLICT DO NOTHING` → sums credits only for newly inserted rows → deducts that sum from shadow balance. Same state-transition logic as `deductShadowBalance`.
+
 **`addShadowBalance`:** Adds credits (top-ups, refunds). If state is `grace`/`exhausted` and new balance > 0, transitions back to `active`. Inserts a `billing_reconciliations` record.
 
 **`reconcileShadowBalance`:** Corrects drift between local and Autumn balance. Inserts reconciliation record for audit trail.
@@ -260,20 +264,25 @@ Billing is **fail-closed**: if org lookup fails, billing state is unreadable, or
 
 ### 6.4 LLM Spend Sync — `Implemented`
 
-**What it does:** Ingests LLM cost data from LiteLLM's `LiteLLM_SpendLogs` table into billing events using cursor-based pagination.
+**What it does:** Ingests LLM cost data into billing events via the LiteLLM Admin REST API and per-org cursors.
 
 **Happy path:**
-1. Worker calls `syncLLMSpend()` every 30s (`apps/worker/src/billing/worker.ts`).
-2. Fetches current cursor from `llm_spend_cursors` (singleton row `id = 'global'`).
-3. Reads spend logs after cursor position, ordered by `(startTime, request_id)`.
-4. For each log: calculates `credits = spend × 3 / 0.01`, calls `deductShadowBalance()` with key `llm:{request_id}`.
-5. Handles state transitions (same as metering — trial auto-activation, exhausted enforcement).
-6. Advances cursor after each batch.
-7. Performs a lookback sweep for late-arriving logs (5-minute window, idempotency handles duplicates).
+1. Worker calls `syncLLMSpend()` every 30 seconds, guarded by `NEXT_PUBLIC_BILLING_ENABLED` + `LLM_PROXY_ADMIN_URL` (`apps/worker/src/billing/worker.ts`).
+2. Lists billable orgs (`billing.listBillableOrgIds()` — states `active`, `trial`, `grace`) (`packages/services/src/billing/db.ts`).
+3. For each org:
+   a. Reads per-org cursor (`billing.getLLMSpendCursor(orgId)`) or defaults to 5-min lookback.
+   b. Fetches spend logs via `billing.fetchSpendLogs(orgId, startDate)` (`packages/services/src/billing/litellm-api.ts`).
+   c. Converts logs with positive `spend` to `BulkDeductEvent[]` using `calculateLLMCredits()`.
+   d. Calls `billing.bulkDeductShadowBalance(orgId, events)` — single transaction with idempotent insert (`packages/services/src/billing/shadow-balance.ts`).
+   e. Advances per-org cursor to latest log's `startTime`.
+4. Handles state transitions: `shouldTerminateSessions` → `handleCreditsExhaustedV2()`.
 
-**Bootstrap modes:** `recent` (default, 5-minute lookback) or `full` (backfills from earliest log). Configurable via `LLM_SYNC_BOOTSTRAP_MODE` env var.
+**Edge cases:**
+- First run for an org (no cursor) → starts from 5-min lookback.
+- REST API failure for one org → logged and skipped; other orgs continue.
+- Duplicate logs → idempotency key `llm:{request_id}` prevents double-billing.
 
-**Files touched:** `apps/worker/src/billing/worker.ts`, `packages/services/src/billing/db.ts`
+**Files touched:** `apps/worker/src/billing/worker.ts`, `packages/services/src/billing/litellm-api.ts`, `packages/services/src/billing/db.ts`, `packages/services/src/billing/shadow-balance.ts`
 
 ### 6.5 Outbox Processing — `Implemented`
 
@@ -397,7 +406,7 @@ Initial runs: metering at +5s, LLM sync at +3s after start. Guarded by `NEXT_PUB
 |---|---|---|---|
 | `auth-orgs.md` | Billing → Orgs | `orgs.getBillingInfoV2()`, `orgs.initializeBillingState()` | Reads/writes billing fields on `organization` table |
 | `auth-orgs.md` | Orgs → Billing | `startTrial` in onboarding router | Onboarding triggers trial credit provisioning |
-| `llm-proxy.md` | LLM → Billing | `LiteLLM_SpendLogs` table | LLM spend sync reads from LiteLLM's external table |
+| `llm-proxy.md` | LLM → Billing | `GET /spend/logs/v2` REST API | LLM spend sync via `litellm-api.ts` (replaces cross-schema SQL) |
 | `sessions-gateway.md` | Sessions → Billing | `checkCanStartSession()` | Session creation calls billing gate |
 | `sessions-gateway.md` | Billing → Sessions | `sessions.status`, `metered_through_at` | Metering reads/updates session rows |
 | `sandbox-providers.md` | Billing → Providers | `provider.checkSandboxes()`, `provider.terminate()` | Liveness checks and session termination |

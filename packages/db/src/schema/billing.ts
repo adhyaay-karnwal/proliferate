@@ -67,11 +67,13 @@ export const billingEventsRelations = relations(billingEvents, ({ one }) => ({
 }));
 
 // ============================================
-// LLM Spend Cursors (Billing V2)
+// LLM Spend Cursors — Per-Org (Billing V2)
 // ============================================
 
 export const llmSpendCursors = pgTable("llm_spend_cursors", {
-	id: text("id").primaryKey().default("global"),
+	organizationId: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
 	lastStartTime: timestamp("last_start_time", { withTimezone: true }).notNull(),
 	lastRequestId: text("last_request_id"),
 	recordsProcessed: integer("records_processed").default(0).notNull(),

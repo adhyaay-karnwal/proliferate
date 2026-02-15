@@ -12,6 +12,7 @@ import type { Logger } from "@proliferate/logger";
 import { getRedisClient } from "@proliferate/queue";
 import { billing, orgs } from "@proliferate/services";
 import type { SandboxProvider } from "@proliferate/shared";
+import { calculateLLMCredits } from "@proliferate/shared/billing";
 import { getSandboxProvider } from "@proliferate/shared/providers";
 
 // ============================================
@@ -68,198 +69,165 @@ async function processOutbox(): Promise<void> {
 }
 
 /**
- * Sync LLM spend from LiteLLM_SpendLogs to billing_events using cursor-based pagination.
- * LiteLLM automatically logs to LiteLLM_SpendLogs when database_url is configured.
- * We read those logs and insert into billing_events for unified Autumn sync.
+ * Default lookback window for first-run orgs with no cursor (5 minutes).
+ */
+const LLM_SYNC_DEFAULT_LOOKBACK_MS = 5 * 60 * 1000;
+
+/**
+ * Sync LLM spend to billing_events via REST API + bulk ledger deduction.
  *
- * V2 Changes:
- * - Cursor-based ingestion (startTime + request_id ordering)
- * - 5-minute lookback on first run
- * - Batch size > 100 and loop until empty
- * - Uses shadow balance for atomic credit deduction
+ * For each billable org:
+ * 1. Read per-org cursor (or default to 5-min lookback)
+ * 2. Fetch spend logs from LiteLLM REST API
+ * 3. Convert to BulkDeductEvent[] and bulk-deduct from shadow balance
+ * 4. Advance cursor
+ * 5. Handle state transitions (terminate sessions if exhausted)
  */
 async function syncLLMSpend(): Promise<void> {
 	if (!env.NEXT_PUBLIC_BILLING_ENABLED) {
 		return;
 	}
 
-	const llmLog = _logger.child({ op: "llm-sync" });
+	// Guard: REST API requires an admin-capable URL + master key
+	const proxyUrl = env.LLM_PROXY_ADMIN_URL || env.LLM_PROXY_URL;
+	if (!proxyUrl || !env.LLM_PROXY_MASTER_KEY) {
+		return;
+	}
+
+	const log = _logger.child({ op: "llm-sync" });
 
 	try {
-		const { calculateLLMCredits, METERING_CONFIG } = await import("@proliferate/shared/billing");
-		const providers = await getProvidersMap();
-		const normalizeTokenCount = (value: number | null | undefined) =>
-			Number.isFinite(value) ? value : null;
-
-		// Get current cursor (or bootstrap)
-		let cursor = await billing.getLLMSpendCursor();
-		const bootstrapMode = process.env.LLM_SYNC_BOOTSTRAP_MODE ?? "recent";
-
-		if (!cursor && bootstrapMode === "full") {
-			const earliestLog = await billing.getLLMSpendMinStartTime();
-			if (earliestLog) {
-				cursor = {
-					lastStartTime: earliestLog,
-					lastRequestId: null,
-					recordsProcessed: 0,
-					syncedAt: new Date(),
-				};
-				llmLog.info({ seedTime: earliestLog.toISOString() }, "Bootstrap(full): seeding cursor");
-			} else {
-				llmLog.info("Bootstrap(full): no spend logs found");
-			}
+		const orgIds = await billing.listBillableOrgIds();
+		if (!orgIds.length) {
+			log.debug("No billable orgs");
+			return;
 		}
 
-		const isBootstrap = !cursor;
-		if (isBootstrap) {
-			llmLog.info({ bootstrapMode }, "No cursor found");
-			if (bootstrapMode !== "full") {
-				llmLog.info(
-					{ lookbackMs: METERING_CONFIG.llmSyncBootstrapLookbackMs },
-					"Using recent lookback. Set LLM_SYNC_BOOTSTRAP_MODE=full for backfill",
-				);
-			}
-		}
-		let totalProcessed = 0;
-		let batchCount = 0;
-		const defaultMaxBatches = isBootstrap ? 20 : 100;
-		const rawMaxBatches = Number(process.env.LLM_SYNC_MAX_BATCHES ?? defaultMaxBatches);
-		const maxBatches =
-			Number.isFinite(rawMaxBatches) && rawMaxBatches > 0 ? rawMaxBatches : defaultMaxBatches;
-		const processedRequestIds = new Set<string>();
-		let lastBatchSize = 0;
+		let totalSynced = 0;
+		let totalOrgs = 0;
 
-		// Loop until we've processed all available logs
-		while (batchCount < maxBatches) {
-			const logs = await billing.getLLMSpendLogsByCursor(cursor, METERING_CONFIG.llmSyncBatchSize);
-
-			if (logs.length === 0) {
-				// No more logs to process
-				break;
-			}
-
-			batchCount++;
-			lastBatchSize = logs.length;
-			llmLog.info({ batch: batchCount, count: logs.length }, "Processing batch");
-
-			for (const log of logs) {
-				// Validate spend is a positive finite number (guard against NaN/Infinity from external input)
-				if (!log.team_id || !Number.isFinite(log.spend) || log.spend <= 0) continue;
-				const totalTokens = normalizeTokenCount(log.total_tokens);
-				const promptTokens = normalizeTokenCount(log.prompt_tokens);
-				const completionTokens = normalizeTokenCount(log.completion_tokens);
-
-				const credits = calculateLLMCredits(log.spend);
-
-				// Use shadow balance for atomic deduction
-				const result = await billing.deductShadowBalance({
-					organizationId: log.team_id,
-					quantity: credits,
-					credits,
-					eventType: "llm",
-					idempotencyKey: `llm:${log.request_id}`,
-					sessionIds: log.user ? [log.user] : [],
-					metadata: {
-						model: log.model,
-						model_group: log.model_group,
-						total_tokens: totalTokens,
-						prompt_tokens: promptTokens,
-						completion_tokens: completionTokens,
-						actual_cost_usd: log.spend,
-						litellm_request_id: log.request_id,
-					},
-				});
-
-				if (result.success) {
-					totalProcessed++;
-					processedRequestIds.add(log.request_id);
-
-					// Handle state transitions
-					if (result.shouldTerminateSessions) {
-						if (result.previousState === "trial" && result.newState === "exhausted") {
-							const activation = await billing.tryActivatePlanAfterTrial(log.team_id);
-							if (activation.activated) {
-								llmLog.info({ orgId: log.team_id }, "Trial auto-activated; skipping termination");
-								continue;
-							}
-						}
-						llmLog.info(
-							{ orgId: log.team_id, reason: result.enforcementReason },
-							"Balance exhausted, should terminate sessions",
-						);
-						await billing.handleCreditsExhaustedV2(log.team_id, providers);
-					} else if (result.shouldBlockNewSessions) {
-						llmLog.info(
-							{ orgId: log.team_id, reason: result.enforcementReason },
-							"Entering grace period",
-						);
-					}
+		for (const orgId of orgIds) {
+			try {
+				const synced = await syncOrgLLMSpend(orgId);
+				if (synced > 0) {
+					totalSynced += synced;
+					totalOrgs++;
 				}
-			}
-
-			// Update cursor after processing batch
-			const newCursor = billing.getNewCursorFromLogs(logs, cursor);
-			if (newCursor) {
-				cursor = newCursor;
-				await billing.updateLLMSpendCursor(cursor);
-			}
-
-			// If we got fewer logs than batch size, we've reached the end
-			if (logs.length < METERING_CONFIG.llmSyncBatchSize) {
-				break;
+			} catch (err) {
+				log.error({ err, orgId }, "Failed to sync LLM spend for org");
 			}
 		}
 
-		// Lookback sweep for late-arriving logs (does not advance cursor)
-		const lookbackLogs = await billing.getLLMSpendLogsLookback(
-			METERING_CONFIG.llmSyncLookbackMs,
-			METERING_CONFIG.llmSyncBatchSize,
-		);
-
-		for (const log of lookbackLogs) {
-			if (processedRequestIds.has(log.request_id)) continue;
-			if (!log.team_id || !Number.isFinite(log.spend) || log.spend <= 0) continue;
-			const totalTokens = normalizeTokenCount(log.total_tokens);
-			const promptTokens = normalizeTokenCount(log.prompt_tokens);
-			const completionTokens = normalizeTokenCount(log.completion_tokens);
-
-			const credits = calculateLLMCredits(log.spend);
-			const result = await billing.deductShadowBalance({
-				organizationId: log.team_id,
-				quantity: credits,
-				credits,
-				eventType: "llm",
-				idempotencyKey: `llm:${log.request_id}`,
-				sessionIds: log.user ? [log.user] : [],
-				metadata: {
-					model: log.model,
-					model_group: log.model_group,
-					total_tokens: totalTokens,
-					prompt_tokens: promptTokens,
-					completion_tokens: completionTokens,
-					actual_cost_usd: log.spend,
-					litellm_request_id: log.request_id,
-					late_log: true,
-				},
-			});
-
-			if (result.success) {
-				totalProcessed++;
-			}
+		if (totalSynced > 0) {
+			log.info({ totalSynced, totalOrgs }, "LLM spend sync complete");
 		}
-
-		if (totalProcessed > 0) {
-			llmLog.info({ totalProcessed, batchCount }, "Synced LLM spend logs");
-		}
-		if (batchCount >= maxBatches && lastBatchSize === METERING_CONFIG.llmSyncBatchSize) {
-			llmLog.info(
-				{ maxBatches, isBootstrap },
-				"Reached max batches; more logs may remain. Increase LLM_SYNC_MAX_BATCHES if needed",
-			);
-		}
-	} catch (error) {
-		llmLog.error({ err: error }, "Error syncing LLM spend");
+	} catch (err) {
+		log.error({ err }, "LLM spend sync cycle error");
 	}
+}
+
+/**
+ * Sync LLM spend for a single org. Returns number of events inserted.
+ */
+async function syncOrgLLMSpend(orgId: string): Promise<number> {
+	const log = _logger.child({ op: "llm-sync", orgId });
+
+	// 1. Read cursor
+	const cursor = await billing.getLLMSpendCursor(orgId);
+	const startDate = cursor
+		? cursor.lastStartTime
+		: new Date(Date.now() - LLM_SYNC_DEFAULT_LOOKBACK_MS);
+
+	// 2. Fetch spend logs from REST API
+	const logs = await billing.fetchSpendLogs(orgId, startDate);
+	if (!logs.length) {
+		return 0;
+	}
+
+	// 3. Sort logs by startTime ascending for deterministic cursor advancement.
+	// LiteLLM's REST API does not guarantee sort order, so we enforce it client-side.
+	logs.sort((a, b) => {
+		const ta = a.startTime ? new Date(a.startTime).getTime() : 0;
+		const tb = b.startTime ? new Date(b.startTime).getTime() : 0;
+		if (ta !== tb) return ta - tb;
+		return a.request_id.localeCompare(b.request_id);
+	});
+
+	// 4. Convert to BulkDeductEvent[]. We do NOT skip duplicates client-side —
+	// bulkDeductShadowBalance uses ON CONFLICT (idempotency_key) DO NOTHING,
+	// which is the authoritative dedup. This avoids the weak single-request_id
+	// check that can miss same-timestamp rows.
+	const events: billing.BulkDeductEvent[] = [];
+	for (const entry of logs) {
+		if (entry.spend <= 0) continue;
+
+		const credits = calculateLLMCredits(entry.spend);
+		events.push({
+			credits,
+			quantity: entry.spend,
+			eventType: "llm",
+			idempotencyKey: `llm:${entry.request_id}`,
+			sessionIds: entry.end_user ? [entry.end_user] : [],
+			metadata: {
+				model: entry.model,
+				total_tokens: entry.total_tokens,
+				prompt_tokens: entry.prompt_tokens,
+				completion_tokens: entry.completion_tokens,
+				litellm_request_id: entry.request_id,
+			},
+		});
+	}
+
+	if (!events.length) {
+		return 0;
+	}
+
+	// 5. Bulk deduct
+	const result = await billing.bulkDeductShadowBalance(orgId, events);
+
+	log.info(
+		{
+			fetched: logs.length,
+			inserted: result.insertedCount,
+			creditsDeducted: result.totalCreditsDeducted,
+			balance: result.newBalance,
+		},
+		"Synced LLM spend",
+	);
+
+	// 6. Advance cursor to the last sorted log's startTime.
+	// Use the last log in sorted order so we don't skip ahead past unprocessed rows.
+	const lastLog = logs[logs.length - 1];
+	const latestStartTime = lastLog.startTime ? new Date(lastLog.startTime) : startDate;
+
+	await billing.updateLLMSpendCursor({
+		organizationId: orgId,
+		lastStartTime: latestStartTime,
+		lastRequestId: lastLog.request_id,
+		recordsProcessed: (cursor?.recordsProcessed ?? 0) + result.insertedCount,
+		syncedAt: new Date(),
+	});
+
+	// 7. Handle state transitions
+	if (result.shouldTerminateSessions) {
+		// Check trial auto-activation before terminating (parity with compute metering)
+		const activation = await billing.tryActivatePlanAfterTrial(orgId);
+		if (activation.activated) {
+			log.info("Trial auto-activated via LLM spend; skipping termination");
+			return result.insertedCount;
+		}
+
+		log.info(
+			{ enforcementReason: result.enforcementReason },
+			"Balance exhausted — terminating sessions",
+		);
+		const providers = await getProvidersMap();
+		await billing.handleCreditsExhaustedV2(orgId, providers);
+	} else if (result.shouldBlockNewSessions) {
+		log.info({ enforcementReason: result.enforcementReason }, "Entering grace period");
+	}
+
+	return result.insertedCount;
 }
 
 /**
