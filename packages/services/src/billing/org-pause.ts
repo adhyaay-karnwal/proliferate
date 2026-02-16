@@ -208,7 +208,7 @@ export async function handleCreditsExhaustedV2(
  */
 export async function terminateAllOrgSessions(
 	orgId: string,
-	reason: "credit_limit" | "suspended",
+	reason: PauseReason,
 	_providers?: Map<string, unknown>,
 ): Promise<{ terminated: number; failed: number }> {
 	const db = getDb();
