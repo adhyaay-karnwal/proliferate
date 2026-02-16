@@ -36,6 +36,9 @@ function getRedlock(): Redlock {
 			driftFactor: 0.01,
 		});
 		redlockInstance.on("error", (err: unknown) => {
+			// Suppress expected contention errors (retryCount: 0 means every contention emits here)
+			const msg = err instanceof Error ? err.message : "";
+			if (msg.includes("quorum") || msg.includes("attempts")) return;
 			getServicesLogger().child({ module: "lock" }).error({ err }, "Redlock error");
 		});
 	}
@@ -82,10 +85,15 @@ export async function runWithMigrationLock<T>(
 	const redlock = getRedlock();
 	const lockKey = getMigrationLockKey(sessionId);
 	try {
-		return await redlock.using([lockKey], ttlMs, async () => fn(), {
-			retryCount: 0,
-		});
-	} catch {
+		return await redlock.using([lockKey], ttlMs, { retryCount: 0 }, async () => fn());
+	} catch (err) {
+		const isLockContention =
+			err instanceof Error && (err.message.includes("quorum") || err.message.includes("attempts"));
+		if (!isLockContention) {
+			getServicesLogger()
+				.child({ module: "lock" })
+				.warn({ err, lockKey }, "Lock acquire failed (not contention)");
+		}
 		return null;
 	}
 }
