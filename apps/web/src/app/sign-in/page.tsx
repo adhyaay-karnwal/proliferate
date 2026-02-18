@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthProviders } from "@/hooks/use-auth-providers";
 import { signIn, useSession } from "@/lib/auth-client";
+import { buildAuthLink, sanitizeRedirect } from "@/lib/auth-utils";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -21,12 +22,14 @@ function SignInContent() {
 	const { data: authProviders } = useAuthProviders();
 	const [googleLoading, setGoogleLoading] = useState(false);
 	const [formLoading, setFormLoading] = useState(false);
-	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
 
-	// Get redirect URL from query params, default to dashboard
-	const redirectUrl = searchParams.get("redirect") || "/dashboard";
+	// Get redirect URL and optional pre-filled email from query params
+	const redirectUrl = sanitizeRedirect(searchParams.get("redirect"));
+	const prefilledEmail = searchParams.get("email") || "";
+
+	const [email, setEmail] = useState(prefilledEmail);
 
 	const hasGoogleOAuth = authProviders?.providers.google ?? false;
 
@@ -184,11 +187,7 @@ function SignInContent() {
 				<p className="mt-6 text-center text-sm text-neutral-500">
 					Don&apos;t have an account?{" "}
 					<Link
-						href={
-							redirectUrl !== "/dashboard"
-								? `/sign-up?redirect=${encodeURIComponent(redirectUrl)}`
-								: "/sign-up"
-						}
+						href={buildAuthLink("/sign-up", redirectUrl, email)}
 						className="text-neutral-300 transition-colors hover:text-white"
 					>
 						Sign up

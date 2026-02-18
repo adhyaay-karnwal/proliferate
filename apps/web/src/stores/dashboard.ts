@@ -1,4 +1,5 @@
-import type { ModelId } from "@proliferate/shared";
+import type { ModelId, ReasoningEffort } from "@proliferate/shared";
+import { modelSupportsReasoning } from "@proliferate/shared/agents";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -11,6 +12,7 @@ interface DashboardState {
 	// Prompt state (for session creation flow)
 	pendingPrompt: string | null;
 	selectedModel: ModelId;
+	reasoningEffort: ReasoningEffort;
 
 	// UI state
 	sidebarCollapsed: boolean;
@@ -32,6 +34,7 @@ interface DashboardState {
 	setActiveSession: (sessionId: string | null) => void;
 	setPendingPrompt: (prompt: string | null) => void;
 	setSelectedModel: (model: ModelId) => void;
+	setReasoningEffort: (effort: ReasoningEffort) => void;
 	clearPendingPrompt: () => void;
 	toggleSidebar: () => void;
 	setMobileSidebarOpen: (open: boolean) => void;
@@ -55,6 +58,7 @@ export const useDashboardStore = create<DashboardState>()(
 			activeSessionId: null,
 			pendingPrompt: null,
 			selectedModel: "claude-opus-4.6",
+			reasoningEffort: "normal",
 			sidebarCollapsed: false,
 			mobileSidebarOpen: false,
 			activeModal: null,
@@ -80,7 +84,16 @@ export const useDashboardStore = create<DashboardState>()(
 
 			setPendingPrompt: (prompt) => set({ pendingPrompt: prompt }),
 
-			setSelectedModel: (model) => set({ selectedModel: model }),
+			setSelectedModel: (model) =>
+				set({
+					selectedModel: model,
+					// Reset reasoning effort when switching to a model that doesn't support it
+					...(!modelSupportsReasoning(model)
+						? { reasoningEffort: "normal" as ReasoningEffort }
+						: {}),
+				}),
+
+			setReasoningEffort: (effort) => set({ reasoningEffort: effort }),
 
 			clearPendingPrompt: () => set({ pendingPrompt: null }),
 
@@ -114,6 +127,7 @@ export const useDashboardStore = create<DashboardState>()(
 					activeSessionId: null,
 					pendingPrompt: null,
 					selectedModel: "claude-opus-4.6",
+					reasoningEffort: "normal",
 					sidebarCollapsed: false,
 					mobileSidebarOpen: false,
 					activeModal: null,
@@ -133,6 +147,7 @@ export const useDashboardStore = create<DashboardState>()(
 				selectedRepoId: state.selectedRepoId,
 				selectedSnapshotId: state.selectedSnapshotId,
 				selectedModel: state.selectedModel,
+				reasoningEffort: state.reasoningEffort,
 				sidebarCollapsed: state.sidebarCollapsed,
 				dismissedOnboardingCards: state.dismissedOnboardingCards,
 				hasSeenWelcome: state.hasSeenWelcome,

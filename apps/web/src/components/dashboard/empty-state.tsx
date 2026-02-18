@@ -1,22 +1,19 @@
 "use client";
 
 import { SessionListRow } from "@/components/sessions/session-card";
-import { useAutomations } from "@/hooks/use-automations";
 import { useOrgPendingRuns } from "@/hooks/use-automations";
 import { useCreateConfiguration } from "@/hooks/use-configurations";
-import { useIntegrations } from "@/hooks/use-integrations";
-import { useRepos } from "@/hooks/use-repos";
 import { useCreateSession, useSessions } from "@/hooks/use-sessions";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard";
+import { modelSupportsReasoning } from "@proliferate/shared/agents";
 import type { PendingRunSummary } from "@proliferate/shared/contracts";
 import { formatDistanceToNow } from "date-fns";
-import { AlertCircle, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { OnboardingCards } from "./onboarding-cards";
 import { PromptInput } from "./prompt-input";
+import { ActivitySummary } from "./session-stats";
 
 // ============================================
 // Helpers
@@ -51,13 +48,11 @@ function SectionHeader({
 	subtitle,
 	actionLabel,
 	actionHref,
-	trailing,
 }: {
 	title: string;
 	subtitle?: string;
 	actionLabel?: string;
 	actionHref?: string;
-	trailing?: React.ReactNode;
 }) {
 	return (
 		<div className="flex items-end justify-between mb-3">
@@ -65,7 +60,6 @@ function SectionHeader({
 				<h2 className="text-base font-semibold text-foreground">{title}</h2>
 				{subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
 			</div>
-			{trailing}
 			{actionLabel && actionHref && (
 				<Link
 					href={actionHref}
@@ -75,134 +69,6 @@ function SectionHeader({
 					<ArrowRight className="h-3.5 w-3.5" />
 				</Link>
 			)}
-		</div>
-	);
-}
-
-// ============================================
-// Scrollable Onboarding Cards (Tembo-style nav arrows)
-// ============================================
-
-function OnboardingSection() {
-	const { dismissedOnboardingCards } = useDashboardStore();
-	const { data: integrationsData, isLoading: intLoading } = useIntegrations();
-	const { data: automations, isLoading: autoLoading } = useAutomations();
-	const { data: repos, isLoading: reposLoading } = useRepos();
-	const scrollRef = useRef<HTMLDivElement>(null);
-	const [canScrollLeft, setCanScrollLeft] = useState(false);
-	const [canScrollRight, setCanScrollRight] = useState(false);
-
-	const dataLoading = intLoading || autoLoading || reposLoading;
-
-	const hasCards = useMemo(() => {
-		if (dataLoading) return false;
-		const integrations = integrationsData?.integrations ?? [];
-		const hasGitHub = integrations.some(
-			(i) => (i.provider === "github" || i.provider === "github-app") && i.status === "active",
-		);
-		const hasSlack = integrations.some((i) => i.provider === "slack" && i.status === "active");
-		const hasAutomation = (automations ?? []).length > 0;
-		const hasAnyRepo = (repos ?? []).length > 0;
-
-		let count = 0;
-		if (!hasAnyRepo) count++;
-		if (!hasGitHub && !dismissedOnboardingCards.includes("github")) count++;
-		if (!hasSlack && !dismissedOnboardingCards.includes("slack")) count++;
-		if (!hasAutomation && !dismissedOnboardingCards.includes("automation")) count++;
-		return count > 0;
-	}, [integrationsData, automations, repos, dataLoading, dismissedOnboardingCards]);
-
-	const updateScrollState = useCallback(() => {
-		const el = scrollRef.current;
-		if (!el) return;
-		setCanScrollLeft(el.scrollLeft > 0);
-		setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-	}, []);
-
-	useEffect(() => {
-		const el = scrollRef.current;
-		if (!el) return;
-		updateScrollState();
-		el.addEventListener("scroll", updateScrollState, { passive: true });
-		const observer = new ResizeObserver(updateScrollState);
-		observer.observe(el);
-		return () => {
-			el.removeEventListener("scroll", updateScrollState);
-			observer.disconnect();
-		};
-	}, [updateScrollState]);
-
-	const scroll = (direction: "left" | "right") => {
-		const el = scrollRef.current;
-		if (!el) return;
-		const distance = 240;
-		el.scrollBy({ left: direction === "left" ? -distance : distance, behavior: "smooth" });
-	};
-
-	// Animate cards in after data loads
-	const [showCards, setShowCards] = useState(false);
-	useEffect(() => {
-		if (hasCards) {
-			const raf = requestAnimationFrame(() => {
-				requestAnimationFrame(() => setShowCards(true));
-			});
-			return () => cancelAnimationFrame(raf);
-		}
-		setShowCards(false);
-	}, [hasCards]);
-
-	if (!hasCards) return null;
-
-	return (
-		<div
-			className={cn(
-				"w-full transition-[opacity] duration-500 ease-out",
-				showCards ? "opacity-100" : "opacity-0",
-			)}
-		>
-			<SectionHeader
-				title="Get Started"
-				subtitle="Complete your setup to get the most out of Proliferate"
-				trailing={
-					<div className="flex gap-1.5 shrink-0">
-						<button
-							type="button"
-							onClick={() => scroll("left")}
-							disabled={!canScrollLeft}
-							className={cn(
-								"flex items-center justify-center w-7 h-7 rounded-lg bg-muted transition-colors",
-								canScrollLeft
-									? "hover:bg-accent text-foreground"
-									: "text-muted-foreground/40 cursor-default",
-							)}
-						>
-							<ChevronLeft className="h-4 w-4" />
-						</button>
-						<button
-							type="button"
-							onClick={() => scroll("right")}
-							disabled={!canScrollRight}
-							className={cn(
-								"flex items-center justify-center w-7 h-7 rounded-lg bg-muted transition-colors",
-								canScrollRight
-									? "hover:bg-accent text-foreground"
-									: "text-muted-foreground/40 cursor-default",
-							)}
-						>
-							<ChevronRight className="h-4 w-4" />
-						</button>
-					</div>
-				}
-			/>
-			<div className="relative">
-				<div ref={scrollRef} className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar">
-					<OnboardingCards hideHeader />
-				</div>
-				{/* Right fade */}
-				{canScrollRight && (
-					<div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-background to-transparent" />
-				)}
-			</div>
 		</div>
 	);
 }
@@ -305,10 +171,12 @@ function RecentActivity() {
 
 export function EmptyDashboard() {
 	const { data: authSession } = useSession();
-	const { selectedRepoId, selectedSnapshotId, selectedModel, setPendingPrompt } =
+	const { selectedRepoId, selectedSnapshotId, selectedModel, reasoningEffort, setPendingPrompt } =
 		useDashboardStore();
 	const createConfiguration = useCreateConfiguration();
 	const createSession = useCreateSession();
+	const { data: recentSessions } = useSessions({ limit: 1, excludeSetup: true, excludeCli: true });
+	const hasSessions = (recentSessions ?? []).length > 0;
 
 	const firstName = authSession?.user?.name?.split(" ")[0] ?? "";
 	const greeting = firstName ? getGreeting(firstName) : "How can I help you today?";
@@ -317,10 +185,16 @@ export function EmptyDashboard() {
 		setPendingPrompt(prompt);
 
 		try {
+			const sessionOptions = {
+				modelId: selectedModel,
+				reasoningEffort:
+					reasoningEffort !== "normal" && modelSupportsReasoning(selectedModel)
+						? reasoningEffort
+						: undefined,
+			};
+
 			if (!selectedSnapshotId && !selectedRepoId) {
-				await createSession.mutateAsync({
-					modelId: selectedModel,
-				});
+				await createSession.mutateAsync(sessionOptions);
 				// Session created — list auto-refreshes via query invalidation
 				setPendingPrompt(null);
 				return;
@@ -338,8 +212,8 @@ export function EmptyDashboard() {
 			if (!configurationId) return;
 
 			await createSession.mutateAsync({
+				...sessionOptions,
 				configurationId,
-				modelId: selectedModel,
 			});
 			// Session created — list auto-refreshes via query invalidation
 			setPendingPrompt(null);
@@ -353,8 +227,13 @@ export function EmptyDashboard() {
 
 	return (
 		<div className="h-full flex flex-col overflow-y-auto">
-			{/* Prompt input area — full width, pinned at top */}
-			<div className="flex flex-col items-center px-4 pt-8 md:pt-16 pb-6">
+			{/* Prompt input area — centered when empty, pinned at top when sessions exist */}
+			<div
+				className={cn(
+					"flex flex-col items-center px-4 pb-6",
+					hasSessions ? "pt-8 md:pt-16" : "flex-1 justify-center",
+				)}
+			>
 				<h2 className="text-3xl font-semibold mb-6">{greeting}</h2>
 				<div className="w-full max-w-2xl">
 					<PromptInput onSubmit={handleSubmit} isLoading={isSubmitting} />
@@ -364,8 +243,8 @@ export function EmptyDashboard() {
 			{/* Content sections — bordered column like Tembo */}
 			<div className="flex-1 border-l border-r border-border/50 mx-auto w-full max-w-3xl">
 				<div className="flex flex-col gap-10 px-4 pb-10">
-					{/* Get Started — horizontal onboarding cards */}
-					{/* <OnboardingSection /> */}
+					{/* Activity summary for returning users */}
+					{hasSessions && <ActivitySummary />}
 
 					{/* Needs Attention — triage items from agent runs */}
 					<NeedsAttention />

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthProviders } from "@/hooks/use-auth-providers";
 import { signIn, signUp, useSession } from "@/lib/auth-client";
+import { buildAuthLink, sanitizeRedirect } from "@/lib/auth-utils";
 import { env } from "@proliferate/environment/public";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -25,19 +26,23 @@ function SignUpContent() {
 	const [googleLoading, setGoogleLoading] = useState(false);
 	const [formLoading, setFormLoading] = useState(false);
 	const [name, setName] = useState("");
-	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
 
-	// Get redirect URL from query params, default to dashboard
-	const redirectUrl = searchParams.get("redirect") || "/dashboard";
+	// Get redirect URL and optional pre-filled email from query params
+	const redirectUrl = sanitizeRedirect(searchParams.get("redirect"));
+	const prefilledEmail = searchParams.get("email") || "";
+
+	const [email, setEmail] = useState(prefilledEmail);
 
 	const hasGoogleOAuth = authProviders?.providers.google ?? false;
 
 	useEffect(() => {
 		if (session && !isPending) {
 			if (!session.user?.emailVerified && REQUIRE_EMAIL_VERIFICATION) {
-				router.push(`/auth/verify-email?email=${encodeURIComponent(session.user.email)}`);
+				router.push(
+					`/auth/verify-email?email=${encodeURIComponent(session.user.email)}&redirect=${encodeURIComponent(redirectUrl)}`,
+				);
 				return;
 			}
 			router.push(redirectUrl);
@@ -115,11 +120,8 @@ function SignUpContent() {
 		return null;
 	}
 
-	// Build sign-in link with redirect param preserved
-	const signInHref =
-		redirectUrl !== "/dashboard"
-			? `/sign-in?redirect=${encodeURIComponent(redirectUrl)}`
-			: "/sign-in";
+	// Build sign-in link preserving redirect + email params
+	const signInHref = buildAuthLink("/sign-in", redirectUrl, email);
 
 	return (
 		<AuthLayout>
