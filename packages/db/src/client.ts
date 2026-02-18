@@ -31,7 +31,7 @@ export function getDb() {
 	const sql = postgres(env.DATABASE_URL, {
 		max: 10,
 		idle_timeout: 20,
-		connect_timeout: isDev ? 30 : 10, // Survive Next.js cold compiles locally
+		connect_timeout: isDev ? 60 : 10, // Survive Next.js first-boot compile storm
 	});
 
 	// Create Drizzle instance with full schema for relations
