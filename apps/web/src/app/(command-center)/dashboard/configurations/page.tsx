@@ -2,11 +2,13 @@
 
 import {
 	GearIllustration,
+	InfoBadge,
 	PageEmptyState,
 	PlusBadge,
 } from "@/components/dashboard/page-empty-state";
 import { PageShell } from "@/components/dashboard/page-shell";
 import { CreateSnapshotContent } from "@/components/dashboard/snapshot-selector";
+import { GitHubConnectButton } from "@/components/integrations/github-connect-button";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -35,10 +37,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { LoadingDots } from "@/components/ui/loading-dots";
 import { useConfigurations, useDeleteConfiguration } from "@/hooks/use-configurations";
+import { useIntegrations } from "@/hooks/use-integrations";
+import { useCreateSession } from "@/hooks/use-sessions";
 import { cn } from "@/lib/utils";
 import type { Configuration } from "@proliferate/shared/contracts";
 import { formatDistanceToNow } from "date-fns";
-import { ChevronRight, FolderGit2, MoreVertical, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronRight, FolderGit2, MoreVertical, Play, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -47,16 +51,25 @@ import { useMemo, useState } from "react";
 // Main Page
 // ============================================
 
+const STATUS_ORDER: Record<string, number> = { ready: 0, default: 0, building: 1 };
+
 export default function ConfigurationsPage() {
 	const { data: configurations, isLoading } = useConfigurations();
+	const { data: integrationsData } = useIntegrations();
 	const [filterQuery, setFilterQuery] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);
 
+	const hasGitHub = integrationsData?.github?.connected ?? false;
+
 	const configList = useMemo(() => {
-		const list = configurations ?? [];
-		if (!filterQuery) return list;
-		const q = filterQuery.toLowerCase();
-		return list.filter((c) => (c.name ?? "").toLowerCase().includes(q));
+		let list = configurations ?? [];
+		if (filterQuery) {
+			const q = filterQuery.toLowerCase();
+			list = list.filter((c) => (c.name ?? "").toLowerCase().includes(q));
+		}
+		return [...list].sort(
+			(a, b) => (STATUS_ORDER[a.status ?? ""] ?? 2) - (STATUS_ORDER[b.status ?? ""] ?? 2),
+		);
 	}, [configurations, filterQuery]);
 
 	if (isLoading) {
@@ -91,7 +104,12 @@ export default function ConfigurationsPage() {
 							/>
 						</div>
 					)}
-					<Button size="sm" className="h-8" onClick={() => setCreateOpen(true)}>
+					<Button
+						size="sm"
+						className="h-8"
+						onClick={() => setCreateOpen(true)}
+						disabled={!hasGitHub}
+					>
 						<Plus className="h-3.5 w-3.5 mr-1.5" />
 						New Configuration
 					</Button>
@@ -99,17 +117,30 @@ export default function ConfigurationsPage() {
 			}
 		>
 			{!hasConfigs ? (
-				<PageEmptyState
-					illustration={<GearIllustration />}
-					badge={<PlusBadge />}
-					title="No configurations yet"
-					description="Define repos, service commands, and environment files to customize your sandbox."
-				>
-					<Button size="sm" onClick={() => setCreateOpen(true)}>
-						<Plus className="h-3.5 w-3.5 mr-1.5" />
-						New Configuration
-					</Button>
-				</PageEmptyState>
+				hasGitHub ? (
+					<PageEmptyState
+						illustration={<GearIllustration />}
+						badge={<PlusBadge />}
+						title="No configurations yet"
+						description="Define repos, service commands, and environment files to customize your sandbox."
+					>
+						<Button size="sm" onClick={() => setCreateOpen(true)}>
+							<Plus className="h-3.5 w-3.5 mr-1.5" />
+							New Configuration
+						</Button>
+					</PageEmptyState>
+				) : (
+					<PageEmptyState
+						illustration={<GearIllustration />}
+						badge={<InfoBadge />}
+						title="Connect GitHub first"
+						description="Configurations need access to your repos. Connect GitHub to get started."
+					>
+						<div className="w-56">
+							<GitHubConnectButton />
+						</div>
+					</PageEmptyState>
+				)
 			) : !hasResults ? (
 				<p className="text-sm text-muted-foreground text-center py-12">
 					No configurations matching &ldquo;{filterQuery}&rdquo;
@@ -149,6 +180,7 @@ export default function ConfigurationsPage() {
 function ConfigurationRow({ config }: { config: Configuration }) {
 	const router = useRouter();
 	const deleteConfiguration = useDeleteConfiguration();
+	const createSession = useCreateSession();
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [expanded, setExpanded] = useState(false);
 
@@ -196,12 +228,12 @@ function ConfigurationRow({ config }: { config: Configuration }) {
 							<span
 								className={cn(
 									"inline-flex items-center rounded-md border px-2.5 py-0.5 text-[11px] font-medium",
-									config.status === "ready"
+									config.status === "ready" || config.status === "default"
 										? "border-border/50 bg-muted/50 text-foreground"
 										: "border-border/50 bg-muted/50 text-muted-foreground",
 								)}
 							>
-								{config.status === "ready"
+								{config.status === "ready" || config.status === "default"
 									? "Ready"
 									: config.status === "building"
 										? "Building"
@@ -224,6 +256,21 @@ function ConfigurationRow({ config }: { config: Configuration }) {
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								{(config.status === "default" || config.status === "ready") && (
+									<DropdownMenuItem
+										disabled={createSession.isPending}
+										onClick={async () => {
+											const result = await createSession.mutateAsync({
+												configurationId: config.id,
+												sessionType: "setup",
+											});
+											router.push(`/workspace/${result.sessionId}`);
+										}}
+									>
+										<Play className="h-4 w-4 mr-2" />
+										{config.status === "ready" ? "Update Environment" : "Set Up Environment"}
+									</DropdownMenuItem>
+								)}
 								<DropdownMenuItem
 									onClick={() => router.push(`/dashboard/configurations/${config.id}`)}
 								>

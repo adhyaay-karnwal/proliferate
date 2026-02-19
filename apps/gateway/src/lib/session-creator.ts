@@ -24,7 +24,6 @@ import {
 	getDefaultAgentConfig,
 	isValidModelId,
 	parseModelId,
-	resolveSnapshotId,
 } from "@proliferate/shared";
 import { getModalAppName } from "@proliferate/shared/providers";
 import {
@@ -54,6 +53,7 @@ export interface CreateSessionOptions {
 	// Optional
 	userId?: string;
 	snapshotId?: string | null;
+	configurationStatus?: string | null;
 	initialPrompt?: string;
 	title?: string;
 	clientMetadata?: Record<string, unknown>;
@@ -137,6 +137,7 @@ export async function createSession(
 		triggerId,
 		triggerEventId,
 		integrationIds: explicitIntegrationIds,
+		configurationStatus,
 		triggerContext,
 		sshOptions,
 	} = options;
@@ -190,25 +191,8 @@ export async function createSession(
 		}
 	}
 
-	// Resolve snapshotId via layering (configuration snapshot → repo snapshot → null).
-	// Repo snapshots are only eligible for Modal provider, non-CLI sessions.
-	let snapshotId = inputSnapshotId ?? null;
-	if (!snapshotId && provider.type === "modal" && sessionType !== "cli") {
-		try {
-			const configurationRepoRows =
-				await configurations.getConfigurationReposWithDetails(configurationId);
-			snapshotId = resolveSnapshotId({
-				configurationSnapshotId: null,
-				sandboxProvider: provider.type,
-				configurationRepos: configurationRepoRows,
-			});
-			if (snapshotId) {
-				log.info({ snapshotId }, "Using repo snapshot");
-			}
-		} catch (err) {
-			log.warn({ err }, "Failed to resolve repo snapshot (non-fatal)");
-		}
-	}
+	// Snapshot ID comes from the caller (configuration's snapshotId)
+	const snapshotId = inputSnapshotId ?? null;
 
 	// Create session record via services (with atomic concurrent admission guard)
 	try {
@@ -304,6 +288,7 @@ export async function createSession(
 			sessionType,
 			userId,
 			snapshotId,
+			configurationStatus,
 			agentConfig,
 			integrationIds: resolvedIntegrationIds,
 			triggerContext,
@@ -376,6 +361,7 @@ interface CreateSandboxParams {
 	sessionType: SessionType;
 	userId?: string;
 	snapshotId?: string | null;
+	configurationStatus?: string | null;
 	agentConfig?: { modelId?: string };
 	/** Resolved integration IDs for token injection. */
 	integrationIds?: string[];
@@ -407,6 +393,7 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 		sessionType,
 		userId,
 		snapshotId,
+		configurationStatus,
 		agentConfig,
 		integrationIds,
 		triggerContext,
@@ -588,15 +575,17 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 		"session_creator.create_sandbox.github_tokens",
 	);
 
-	// Derive snapshotHasDeps: true when snapshot includes installed deps.
-	// Repo snapshots (clone-only) don't have deps; configuration/session/pause snapshots do.
+	// Derive snapshotHasDeps: true only when snapshot includes installed deps.
+	// "default" configuration snapshots are clone-only (no deps); only "ready" has deps.
+	// Legacy repo snapshots (clone-only) also don't have deps.
 	const repoSnapshotFallback =
 		configurationRepoRows.length === 1 &&
 		configurationRepoRows[0].repo?.repoSnapshotStatus === "ready" &&
 		configurationRepoRows[0].repo?.repoSnapshotId
 			? configurationRepoRows[0].repo.repoSnapshotId
 			: null;
-	const snapshotHasDeps = Boolean(snapshotId) && snapshotId !== repoSnapshotFallback;
+	const snapshotHasDeps =
+		Boolean(snapshotId) && snapshotId !== repoSnapshotFallback && configurationStatus === "ready";
 
 	// Resolve service commands: configuration-level first, then per-repo fallback
 	const configSvcRow = await configurations.getConfigurationServiceCommands(configurationId);
