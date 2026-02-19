@@ -1,9 +1,9 @@
 -- Phase 2a: Session telemetry columns
-ALTER TABLE "sessions" ADD COLUMN "outcome" text;
-ALTER TABLE "sessions" ADD COLUMN "summary" text;
-ALTER TABLE "sessions" ADD COLUMN "pr_urls" jsonb;
-ALTER TABLE "sessions" ADD COLUMN "metrics" jsonb;
-ALTER TABLE "sessions" ADD COLUMN "latest_task" text;
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "outcome" text;
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "summary" text;
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "pr_urls" jsonb;
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "metrics" jsonb;
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "latest_task" text;
 
 -- Backfill outcome/summary/pr_urls from automation_runs completion data.
 -- Uses DISTINCT ON to pick the most recently completed run per session.
