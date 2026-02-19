@@ -88,9 +88,9 @@ interface IconProps {
 }
 
 /**
- * Custom "Blocks" icon
+ * Proliferate brand icon (blocks pattern)
  */
-export function BlocksIcon({ className }: IconProps) {
+export function ProliferateIcon({ className }: IconProps) {
 	return (
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -112,9 +112,9 @@ export function BlocksIcon({ className }: IconProps) {
 }
 
 /**
- * Animated loading version of the "Blocks" icon
+ * Animated loading version of the Proliferate icon
  */
-export function BlocksLoadingIcon({ className }: IconProps) {
+export function ProliferateLoadingIcon({ className }: IconProps) {
 	return (
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -206,7 +206,7 @@ export function BlocksLoadingIcon({ className }: IconProps) {
 		</svg>
 	);
 }
-export function BlocksLoadingIcon2({ className }: IconProps) {
+export function ProliferateLoadingIcon2({ className }: IconProps) {
 	return (
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -243,7 +243,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="375.00"
 				width="50.00"
 				height="50.00"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.2s" }}
 			/>
@@ -252,7 +252,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="305.00"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.2s" }}
 			/>
@@ -261,7 +261,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="470.33"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.2s" }}
 			/>
@@ -272,7 +272,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="346.33"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.05s" }}
 			/>
@@ -281,7 +281,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="429.00"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.05s" }}
 			/>
@@ -292,7 +292,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="387.67"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-0.9s" }}
 			/>
@@ -303,7 +303,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="429.00"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.35s" }}
 			/>
@@ -312,7 +312,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="346.33"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.35s" }}
 			/>
@@ -323,7 +323,7 @@ export function BlocksLoadingIcon2({ className }: IconProps) {
 				y="387.67"
 				width="24.67"
 				height="24.67"
-				fill="#000"
+				fill="currentColor"
 				className="ai-block"
 				style={{ animationDelay: "-1.5s" }}
 			/>
@@ -415,7 +415,7 @@ export function PostHogIcon({ className }: IconProps) {
 			/>
 			<path
 				d="M42.5248 23.5308l-9.4127-9.4127c-.63-.63-1.7071-.1838-1.7071.7071v13.1664c0 .5523.4477 1 1 1h14.5806c.5523 0 1-.4477 1-1v-1.199c0-.5523-.4496-.9934-.9973-1.0647-1.6807-.2188-3.2528-.9864-4.4635-2.1971zm-6.3213 2.2618c-.8829 0-1.5995-.7166-1.5995-1.5996 0-.8829.7166-1.5995 1.5995-1.5995.883 0 1.5996.7166 1.5996 1.5995 0 .883-.7166 1.5996-1.5996 1.5996z"
-				fill="#000"
+				fill="currentColor"
 			/>
 			<path
 				d="M0 27.9916c0 .5523.447715 1 1 1h4.58339c.8909 0 1.33707-1.0771.70711-1.7071l-4.58339-4.5834C1.07714 22.0711 0 22.5173 0 23.4082v4.5834zM9.997 10.997L1.70711 2.70711C1.07714 2.07714 0 2.52331 0 3.41421v5.16918c0 .26521.105357.51957.292893.7071L9.997 18.9946V10.997zM1.70711 12.7041C1.07714 12.0741 0 12.5203 0 13.4112v5.1692c0 .2652.105357.5196.292893.7071L9.997 28.9916V20.994l-8.28989-8.2899z"
@@ -683,38 +683,61 @@ export function LinearIcon({ className }: IconProps) {
 }
 
 /**
- * OpenCode logo - terminal-style icon
+ * Proliferate icon — Quick reasoning variant (center block only)
  */
-export function OpenCodeIcon({ className }: IconProps) {
+export function ProliferateIconQuick({ className }: IconProps) {
 	return (
 		<svg
-			className={cn("h-4 w-4", className)}
-			viewBox="0 0 240 300"
-			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
+			viewBox="300 300 200 200"
+			className={className}
+			fill="none"
 		>
-			<g clipPath="url(#clip0_opencode)">
-				<mask
-					id="mask0_opencode"
-					style={{ maskType: "luminance" }}
-					maskUnits="userSpaceOnUse"
-					x="0"
-					y="0"
-					width="240"
-					height="300"
-				>
-					<path d="M240 0H0V300H240V0Z" fill="white" />
-				</mask>
-				<g mask="url(#mask0_opencode)">
-					<path d="M180 240H60V120H180V240Z" fill="currentColor" opacity="0.5" />
-					<path d="M180 60H60V240H180V60ZM240 300H0V0H240V300Z" fill="currentColor" />
-				</g>
-			</g>
-			<defs>
-				<clipPath id="clip0_opencode">
-					<rect width="240" height="300" fill="white" />
-				</clipPath>
-			</defs>
+			<rect x="375.00" y="375.00" width="50.00" height="50.00" fill="currentColor" />
+		</svg>
+	);
+}
+
+/**
+ * Proliferate icon — Normal reasoning variant (center + inner ring)
+ */
+export function ProliferateIconNormal({ className }: IconProps) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="300 300 200 200"
+			className={className}
+			fill="none"
+		>
+			<rect x="375.00" y="375.00" width="50.00" height="50.00" fill="currentColor" />
+			<rect x="387.67" y="305.00" width="24.67" height="24.67" fill="currentColor" opacity="0.4" />
+			<rect x="470.33" y="387.67" width="24.67" height="24.67" fill="currentColor" opacity="0.4" />
+			<rect x="387.67" y="470.33" width="24.67" height="24.67" fill="currentColor" opacity="0.4" />
+			<rect x="305.00" y="387.67" width="24.67" height="24.67" fill="currentColor" opacity="0.4" />
+		</svg>
+	);
+}
+
+/**
+ * Proliferate icon — Deep reasoning variant (all blocks, full opacity)
+ */
+export function ProliferateIconDeep({ className }: IconProps) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="300 300 200 200"
+			className={className}
+			fill="none"
+		>
+			<rect x="375.00" y="375.00" width="50.00" height="50.00" fill="currentColor" />
+			<rect x="387.67" y="305.00" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="429.00" y="346.33" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="470.33" y="387.67" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="429.00" y="429.00" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="387.67" y="470.33" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="346.33" y="429.00" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="305.00" y="387.67" width="24.67" height="24.67" fill="currentColor" />
+			<rect x="346.33" y="346.33" width="24.67" height="24.67" fill="currentColor" />
 		</svg>
 	);
 }
@@ -767,51 +790,29 @@ export function GeminiIcon({ className }: IconProps) {
  */
 export function DeepSeekIcon({ className }: IconProps) {
 	return (
-		<img src="/logos/deespeek.png" alt="" className={cn("h-4 w-4 object-contain", className)} />
+		<img src="/logos/deepseek.png" alt="" className={cn("h-4 w-4 object-contain", className)} />
 	);
 }
 
 /**
- * xAI brand icon
+ * xAI / Grok brand icon
  */
 export function XAIIcon({ className }: IconProps) {
-	return (
-		<img
-			src="/logos/xai.png"
-			alt=""
-			className={cn("h-4 w-4 object-contain dark:invert", className)}
-		/>
-	);
+	return <img src="/logos/grok.png" alt="" className={cn("h-4 w-4 object-contain", className)} />;
 }
 
 /**
- * Mistral brand icon — no logo file provided, keep as SVG placeholder
+ * Mistral brand icon
  */
 export function MistralIcon({ className }: IconProps) {
 	return (
-		<svg
-			className={cn("h-4 w-4", className)}
-			viewBox="0 0 24 24"
-			fill="currentColor"
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			<rect x="1" y="3" width="4" height="4" />
-			<rect x="19" y="3" width="4" height="4" />
-			<rect x="1" y="10" width="4" height="4" />
-			<rect x="7" y="10" width="4" height="4" />
-			<rect x="13" y="10" width="4" height="4" />
-			<rect x="19" y="10" width="4" height="4" />
-			<rect x="1" y="17" width="4" height="4" />
-			<rect x="19" y="17" width="4" height="4" />
-			<rect x="7" y="3" width="10" height="4" fill="currentColor" opacity="0.5" />
-			<rect x="7" y="17" width="10" height="4" fill="currentColor" opacity="0.5" />
-		</svg>
+		<img src="/logos/mistral.svg" alt="" className={cn("h-4 w-4 object-contain", className)} />
 	);
 }
 
 /**
  * Animated thinking icon with speed-differentiated animation.
- * Uses the same blocks pattern as BlocksLoadingIcon but with parameterized duration.
+ * Uses the same blocks pattern as ProliferateLoadingIcon but with parameterized duration.
  */
 export function ThinkingIcon({
 	className,
@@ -1092,144 +1093,6 @@ export function RunsIcon({ className }: IconProps) {
 			/>
 			<path
 				d="M6.4585 10.625H9.79183"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-// ============================================================================
-// Automation Template Icons
-// ============================================================================
-
-/**
- * Sentry Auto-Fixer: Bug with a wrench overlay
- */
-export function TemplateIconSentryFixer({ className }: IconProps) {
-	return (
-		<svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-			{/* Bug body */}
-			<ellipse cx="14" cy="17" rx="6" ry="7" stroke="currentColor" strokeWidth="1.8" />
-			<line x1="14" y1="10" x2="14" y2="24" stroke="currentColor" strokeWidth="1.5" />
-			<line x1="8" y1="16" x2="20" y2="16" stroke="currentColor" strokeWidth="1.5" />
-			{/* Bug legs */}
-			<path d="M8.5 13.5L5.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M8 17.5L4.5 17.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M8.5 21L5.5 23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M19.5 13.5L22.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			{/* Bug antennae */}
-			<path d="M11 11L9 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M17 11L19 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			{/* Wrench */}
-			<path d="M24 20L28 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<circle cx="23" cy="19" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-		</svg>
-	);
-}
-
-/**
- * Linear PR Drafter: Ticket shape flowing into a git merge/branch
- */
-export function TemplateIconLinearPr({ className }: IconProps) {
-	return (
-		<svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-			{/* Ticket / card */}
-			<rect x="3" y="7" width="13" height="18" rx="2" stroke="currentColor" strokeWidth="1.8" />
-			<line
-				x1="6.5"
-				y1="11.5"
-				x2="12.5"
-				y2="11.5"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-			/>
-			<line
-				x1="6.5"
-				y1="14.5"
-				x2="10.5"
-				y2="14.5"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-			/>
-			<line
-				x1="6.5"
-				y1="17.5"
-				x2="11.5"
-				y2="17.5"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-			/>
-			{/* Arrow flowing right */}
-			<path d="M16 16H22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-			<path
-				d="M20 13.5L22.5 16L20 18.5"
-				stroke="currentColor"
-				strokeWidth="1.8"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			{/* Git branch symbol */}
-			<circle cx="27" cy="11" r="2" stroke="currentColor" strokeWidth="1.5" />
-			<circle cx="27" cy="21" r="2" stroke="currentColor" strokeWidth="1.5" />
-			<path d="M27 13V19" stroke="currentColor" strokeWidth="1.5" />
-		</svg>
-	);
-}
-
-/**
- * GitHub Issue Solver: Issue circle with an inner check
- */
-export function TemplateIconGithubSolver({ className }: IconProps) {
-	return (
-		<svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-			{/* Outer issue circle */}
-			<circle cx="16" cy="16" r="11" stroke="currentColor" strokeWidth="1.8" />
-			{/* Inner dot (GitHub issue icon style) morphing into a check */}
-			<path
-				d="M11.5 16.5L14.5 19.5L21 13"
-				stroke="currentColor"
-				strokeWidth="2.2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			{/* Small spark lines radiating — solution found */}
-			<path d="M16 2.5V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M16 27.5V29.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M2.5 16H4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-			<path d="M27.5 16H29.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-		</svg>
-	);
-}
-
-/**
- * CI Failure Fixer: Pipeline with a lightning bolt repair
- */
-export function TemplateIconCiFixer({ className }: IconProps) {
-	return (
-		<svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-			{/* Pipeline stages */}
-			<rect x="2" y="11" width="7" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
-			<rect x="23" y="11" width="7" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
-			{/* Connecting lines */}
-			<path d="M9 16H12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-			<path d="M20 16H23" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-			{/* Lightning bolt in center — the fix */}
-			<path
-				d="M17.5 9L14 17H18L14.5 25"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			{/* Check in the last stage */}
-			<path
-				d="M25 15.5L26.5 17L28 14.5"
 				stroke="currentColor"
 				strokeWidth="1.5"
 				strokeLinecap="round"
