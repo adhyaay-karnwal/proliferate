@@ -114,6 +114,11 @@ model_list:
       model: gemini/gemini-3-flash-preview
       api_key: os.environ/GOOGLE_API_KEY
 
+  - model_name: litellm/gemini-3.1-pro-preview
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GOOGLE_API_KEY
+
   # ============================================
   # DeepSeek models (via LiteLLM)
   # ============================================

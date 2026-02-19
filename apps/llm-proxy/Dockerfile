@@ -3,7 +3,7 @@
 # Uses LiteLLM directly with built-in JWT authentication.
 # No custom wrapper needed - all auth and spend tracking is handled by LiteLLM.
 
-FROM ghcr.io/berriai/litellm:main-latest
+FROM ghcr.io/berriai/litellm:main-v1.81.9-stable.gemini.3.1-pro
 
 WORKDIR /app
 
