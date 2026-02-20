@@ -126,8 +126,8 @@ export async function requestTitleGeneration(
 
 	try {
 		const queue = getTitleGenerationQueue();
-		const jobId = `title:${sessionId}`;
-		await queue.add(`title:${sessionId}`, { sessionId, orgId, prompt }, { jobId });
+		const jobId = `title-${sessionId}`;
+		await queue.add(`title-${sessionId}`, { sessionId, orgId, prompt }, { jobId });
 		logger.info({ sessionId }, "Enqueued session title generation job");
 	} catch (err) {
 		logger.warn({ err, sessionId }, "Failed to enqueue session title generation");
