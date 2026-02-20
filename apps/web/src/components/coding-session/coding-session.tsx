@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useBackgroundVscodeStart } from "@/hooks/use-background-vscode";
 import { useRepo } from "@/hooks/use-repos";
 import { useRenameSession, useSessionData, useSnapshotSession } from "@/hooks/use-sessions";
 import { useSession as useBetterAuthSession } from "@/lib/auth-client";
@@ -15,6 +16,7 @@ import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import {
 	AlertTriangle,
 	ArrowLeft,
+	ArrowRightLeft,
 	Code,
 	GitBranch,
 	Globe,
@@ -107,6 +109,9 @@ export function CodingSession({
 		clientType: sessionData?.clientType ?? null,
 	});
 
+	// Start VS Code server in the background as soon as the session connects
+	useBackgroundVscodeStart(sessionId, wsToken);
+
 	const snapshotSession = useSnapshotSession();
 	const canSnapshot = sessionData?.status === "running" && !!sessionData?.sandboxId;
 	const handleSnapshot = async () => {
@@ -142,9 +147,24 @@ export function CodingSession({
 		unpinTab,
 		panelSizes,
 		setPanelSizes,
+		panelSide,
+		setPanelSide,
 		missingEnvKeyCount,
 	} = usePreviewPanelStore();
 	const [viewPickerOpen, setViewPickerOpen] = useState(false);
+	const [isPanelDragging, setIsPanelDragging] = useState(false);
+
+	// Disable iframe pointer events during panel resize drag
+	useEffect(() => {
+		if (!isPanelDragging) return;
+		document.body.classList.add("panel-resizing");
+		const onMouseUp = () => setIsPanelDragging(false);
+		window.addEventListener("mouseup", onMouseUp);
+		return () => {
+			document.body.classList.remove("panel-resizing");
+			window.removeEventListener("mouseup", onMouseUp);
+		};
+	}, [isPanelDragging]);
 	const activeType = mode.type === "file" || mode.type === "gallery" ? "artifacts" : mode.type;
 
 	// Auto-open investigation panel when runId is present (fires once per runId)
@@ -248,13 +268,10 @@ export function CodingSession({
 					isSessionCreating ? (status === "connecting" ? "provisioning" : "preparing") : undefined
 				}
 				repoName={repoData?.githubRepoName || sessionData.repo?.githubRepoName}
-				initialPrompt={initialPrompt}
 				showHeader={false}
 			/>
 		) : (
-			<div className="flex h-full items-center justify-center">
-				<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-			</div>
+			<SessionLoadingShell mode="resuming" showHeader={false} />
 		)
 	) : !authSession ? (
 		<div className="flex h-full items-center justify-center">
@@ -418,9 +435,67 @@ export function CodingSession({
 
 	// Panel tabs header (embedded in right pane)
 	const panelTabsHeader = (
-		<div className="shrink-0 flex items-center h-12 px-3 border-b border-border/50">
+		<div className="shrink-0 flex items-center justify-between h-12 px-3 border-b border-border/50">
 			{panelViewPicker}
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Button
+						variant="ghost"
+						size="icon"
+						className="h-7 w-7 text-muted-foreground"
+						onClick={() => setPanelSide(panelSide === "right" ? "left" : "right")}
+					>
+						<ArrowRightLeft className="h-3.5 w-3.5" />
+					</Button>
+				</TooltipTrigger>
+				<TooltipContent side="bottom">
+					Move panel to {panelSide === "right" ? "left" : "right"}
+				</TooltipContent>
+			</Tooltip>
 		</div>
+	);
+
+	const handleDesktopLayoutChanged = (layout: unknown) => {
+		const sizes = Array.isArray(layout) ? layout : Object.values(layout as Record<string, number>);
+		if (sizes.length < 2) return;
+		if (panelSide === "left") {
+			setPanelSizes([sizes[1], sizes[0]]);
+		} else {
+			setPanelSizes([sizes[0], sizes[1]]);
+		}
+	};
+
+	const chatPane = (
+		<ResizablePanel
+			defaultSize={panelSizes[0] || 35}
+			minSize={25}
+			maxSize={65}
+			className="flex flex-col"
+		>
+			{chatHeader}
+			<div className="flex-1 min-h-0 flex flex-col">{leftPaneContent}</div>
+		</ResizablePanel>
+	);
+
+	const toolPane = (
+		<ResizablePanel
+			defaultSize={panelSizes[1] || 65}
+			minSize={35}
+			maxSize={75}
+			className="flex flex-col"
+		>
+			{panelTabsHeader}
+			<div className="flex-1 min-h-0 p-2">
+				<div className="h-full rounded-xl border border-border bg-background overflow-hidden">
+					<RightPanel
+						isMobileFullScreen={false}
+						sessionProps={sessionPanelProps}
+						previewUrl={previewUrl}
+						runId={runId}
+					/>
+				</div>
+			</div>
+		</ResizablePanel>
 	);
 
 	// Desktop layout with resizable panels
@@ -428,41 +503,21 @@ export function CodingSession({
 		<ResizablePanelGroup
 			orientation="horizontal"
 			className="h-full w-full"
-			onLayoutChanged={(layout) => setPanelSizes(Object.values(layout))}
+			onLayoutChanged={handleDesktopLayoutChanged}
 		>
-			{/* Left pane: Chat */}
-			<ResizablePanel
-				defaultSize={panelSizes[0] || 35}
-				minSize={25}
-				maxSize={65}
-				className="flex flex-col"
-			>
-				{chatHeader}
-				<div className="flex-1 min-h-0 flex flex-col">{leftPaneContent}</div>
-			</ResizablePanel>
-
-			{/* Drag handle */}
-			<ResizableHandle withHandle />
-
-			{/* Right pane: Tool panels */}
-			<ResizablePanel
-				defaultSize={panelSizes[1] || 65}
-				minSize={35}
-				maxSize={75}
-				className="flex flex-col"
-			>
-				{panelTabsHeader}
-				<div className="flex-1 min-h-0 p-2">
-					<div className="h-full rounded-xl border border-border bg-background overflow-hidden">
-						<RightPanel
-							isMobileFullScreen={false}
-							sessionProps={sessionPanelProps}
-							previewUrl={previewUrl}
-							runId={runId}
-						/>
-					</div>
-				</div>
-			</ResizablePanel>
+			{panelSide === "left" ? (
+				<>
+					{toolPane}
+					<ResizableHandle withHandle onMouseDown={() => setIsPanelDragging(true)} />
+					{chatPane}
+				</>
+			) : (
+				<>
+					{chatPane}
+					<ResizableHandle withHandle onMouseDown={() => setIsPanelDragging(true)} />
+					{toolPane}
+				</>
+			)}
 		</ResizablePanelGroup>
 	);
 
