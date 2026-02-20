@@ -27,10 +27,7 @@ export async function processFastReconcileJob(
 	// 2. Fetch actual balance from Autumn
 	let actualBalance: number;
 	try {
-		const result = await autumnGetBalance(
-			billingInfo.autumnCustomerId,
-			AUTUMN_FEATURES.credits,
-		);
+		const result = await autumnGetBalance(billingInfo.autumnCustomerId, AUTUMN_FEATURES.credits);
 		actualBalance = result.balance;
 	} catch (err) {
 		log.error({ err }, "Failed to fetch Autumn balance — will retry via BullMQ");
