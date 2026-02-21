@@ -9,13 +9,13 @@ Yeah, the centered logo + badges + one-liner at the top is way more professional
 <p align="center">The open source, self-hostable AI coworker.</p>
 
 <p align="center">
-    <a href="https://join.slack.com/[YOUR_SLACK]" target="_blank">
+    <a href="https://join.slack.com/t/proliferatepublic/shared_invite/zt-3ngfqqttg-qyE2cgQBQQ0klmd9Vbh9Ow" target="_blank">
         <img src="https://img.shields.io/badge/slack-join-blue.svg?logo=slack&logoColor=white" alt="Slack" />
     </a>
     <a href="https://docs.proliferate.com" target="_blank">
         <img src="https://img.shields.io/badge/docs-view-blue" alt="Documentation" />
     </a>
-    <a href="https://proliferate.com" target="_blank">
+    <a href="proliferate.ai?utm_source=github&utm_medium=social&utm_campaign=readme" target="_blank">
         <img src="https://img.shields.io/website?url=https://proliferate.com&up_message=visit&up_color=blue" alt="Website" />
     </a>
     <a href="https://github.com/proliferate-ai/proliferate/blob/main/LICENSE" target="_blank">
