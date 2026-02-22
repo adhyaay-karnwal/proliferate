@@ -6,7 +6,7 @@
 
 import { GATEWAY_URL } from "@/lib/gateway";
 import { ORPCError } from "@orpc/server";
-import { automations, runs, schedules, templates } from "@proliferate/services";
+import { automations, configurations, runs, schedules, templates } from "@proliferate/services";
 import {
 	AutomationConnectionSchema,
 	AutomationEventDetailSchema,
@@ -64,15 +64,30 @@ export const automationsRouter = {
 		.output(z.object({ automation: AutomationListItemSchema }))
 		.handler(async ({ input, context }) => {
 			try {
+				let defaultConfigurationId = input.defaultConfigurationId;
+				if (!defaultConfigurationId) {
+					const orgConfigurations = await configurations.listConfigurations(context.orgId);
+					const defaultConfig = orgConfigurations.find((c) => c.status === "default");
+					const readyConfig = orgConfigurations.find((c) => c.status === "ready");
+					const selectedConfig = defaultConfig ?? readyConfig;
+					if (!selectedConfig) {
+						throw new ORPCError("BAD_REQUEST", {
+							message: "No ready configuration available. Please create a configuration first.",
+						});
+					}
+					defaultConfigurationId = selectedConfig.id;
+				}
+
 				const automation = await automations.createAutomation(context.orgId, context.user.id, {
 					name: input.name,
 					description: input.description,
 					agentInstructions: input.agentInstructions,
-					defaultConfigurationId: input.defaultConfigurationId,
+					defaultConfigurationId,
 					allowAgenticRepoSelection: input.allowAgenticRepoSelection,
 				});
 				return { automation };
 			} catch (err) {
+				if (err instanceof ORPCError) throw err;
 				if (err instanceof Error && err.message === "Configuration not found") {
 					throw new ORPCError("NOT_FOUND", { message: err.message });
 				}
