@@ -5,10 +5,17 @@
  */
 
 import { randomBytes, randomUUID } from "crypto";
-import { createPollGroupQueue, removePollGroupJob, schedulePollGroupJob } from "@proliferate/queue";
+import {
+	addScheduledJob,
+	createPollGroupQueue,
+	createScheduledQueue,
+	removePollGroupJob,
+	schedulePollGroupJob,
+} from "@proliferate/queue";
 import type { Trigger, TriggerEvent, TriggerWithIntegration } from "@proliferate/shared";
 import { getServicesLogger } from "../logger";
 import * as pollGroupsDb from "../poll-groups/db";
+import { CronValidationError, assertValidCronExpression } from "../schedules/service";
 import * as triggersDb from "./db";
 import {
 	toTrigger,
@@ -19,12 +26,50 @@ import {
 } from "./mapper";
 
 let pollGroupQueue: ReturnType<typeof createPollGroupQueue> | null = null;
+let scheduledQueue: ReturnType<typeof createScheduledQueue> | null = null;
 
 function getPollGroupQueue() {
 	if (!pollGroupQueue) {
 		pollGroupQueue = createPollGroupQueue();
 	}
 	return pollGroupQueue;
+}
+
+function getScheduledQueue() {
+	if (!scheduledQueue) {
+		scheduledQueue = createScheduledQueue();
+	}
+	return scheduledQueue;
+}
+
+async function removeScheduledJobByPattern(triggerId: string, cronPattern: string): Promise<void> {
+	await getScheduledQueue().removeRepeatable(`scheduled:${triggerId}`, {
+		pattern: cronPattern,
+	});
+}
+
+function validateTriggerCron(
+	provider: string,
+	triggerType: string | undefined,
+	cronExpression: string | null | undefined,
+): void {
+	if (provider === "scheduled") {
+		if (!cronExpression || cronExpression.trim().length === 0) {
+			throw new CronValidationError("Scheduled triggers require pollingCron");
+		}
+		assertValidCronExpression(cronExpression);
+		return;
+	}
+
+	if (triggerType !== "polling" || cronExpression === null || cronExpression === undefined) {
+		return;
+	}
+
+	if (cronExpression.trim().length === 0) {
+		throw new CronValidationError("Polling triggers require pollingCron");
+	}
+
+	assertValidCronExpression(cronExpression);
 }
 
 // ============================================
@@ -111,6 +156,21 @@ export async function listTriggers(orgId: string): Promise<TriggerWithIntegratio
 }
 
 /**
+ * List enabled scheduled triggers that have cron expressions.
+ * Used by trigger-service startup to restore repeatable jobs.
+ */
+export async function listEnabledScheduledTriggers(): Promise<
+	Array<{ id: string; pollingCron: string }>
+> {
+	const rows = await triggersDb.listEnabledScheduledTriggers();
+	return rows.flatMap((row) =>
+		typeof row.pollingCron === "string" && row.pollingCron.trim().length > 0
+			? [{ id: row.id, pollingCron: row.pollingCron }]
+			: [],
+	);
+}
+
+/**
  * Get a single trigger by ID with recent events and counts.
  */
 export async function getTrigger(id: string, orgId: string): Promise<GetTriggerResult | null> {
@@ -134,6 +194,8 @@ export async function getTrigger(id: string, orgId: string): Promise<GetTriggerR
  */
 export async function createTrigger(input: CreateTriggerInput): Promise<CreateTriggerResult> {
 	const triggerType = input.triggerType ?? "webhook";
+
+	validateTriggerCron(input.provider, triggerType, input.pollingCron);
 
 	// Validate configuration if provided
 	if (input.defaultConfigurationId) {
@@ -211,6 +273,16 @@ export async function createTrigger(input: CreateTriggerInput): Promise<CreateTr
 		}
 	}
 
+	if (trigger.provider === "scheduled" && trigger.enabled && trigger.pollingCron) {
+		try {
+			await addScheduledJob(getScheduledQueue(), trigger.id, trigger.pollingCron);
+		} catch (err) {
+			getServicesLogger()
+				.child({ module: "triggers" })
+				.error({ err, triggerId: trigger.id }, "Failed to schedule cron trigger");
+		}
+	}
+
 	return {
 		trigger: toTrigger(trigger),
 		webhookUrl,
@@ -228,6 +300,10 @@ export async function updateTrigger(
 	// Check if trigger exists
 	const existing = await triggersDb.findById(id, orgId);
 	if (!existing) return null;
+
+	if (input.pollingCron !== undefined) {
+		validateTriggerCron(existing.provider, existing.triggerType, input.pollingCron);
+	}
 
 	const updated = await triggersDb.update(id, {
 		name: input.name,
@@ -266,6 +342,26 @@ export async function updateTrigger(
 		}
 	}
 
+	if (updated.provider === "scheduled") {
+		const scheduleChanged =
+			existing.pollingCron !== updated.pollingCron || existing.enabled !== updated.enabled;
+		if (scheduleChanged) {
+			try {
+				if (existing.pollingCron) {
+					await removeScheduledJobByPattern(id, existing.pollingCron);
+				}
+
+				if (updated.enabled && updated.pollingCron) {
+					await addScheduledJob(getScheduledQueue(), id, updated.pollingCron);
+				}
+			} catch (err) {
+				getServicesLogger()
+					.child({ module: "triggers" })
+					.error({ err, triggerId: id }, "Failed to update cron trigger schedule");
+			}
+		}
+	}
+
 	return toTrigger(updated);
 }
 
@@ -293,6 +389,16 @@ export async function deleteTrigger(id: string, orgId: string): Promise<boolean>
 			getServicesLogger()
 				.child({ module: "triggers" })
 				.error({ err }, "Failed to clean up poll groups");
+		}
+	}
+
+	if (existing?.provider === "scheduled" && existing.pollingCron) {
+		try {
+			await removeScheduledJobByPattern(existing.id, existing.pollingCron);
+		} catch (err) {
+			getServicesLogger()
+				.child({ module: "triggers" })
+				.error({ err, triggerId: existing.id }, "Failed to remove cron trigger schedule");
 		}
 	}
 	return true;

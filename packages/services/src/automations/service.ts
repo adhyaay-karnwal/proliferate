@@ -5,6 +5,12 @@
  */
 
 import { randomBytes, randomUUID } from "crypto";
+import {
+	addScheduledJob,
+	createPollGroupQueue,
+	createScheduledQueue,
+	removePollGroupJob,
+} from "@proliferate/queue";
 import type {
 	Automation,
 	AutomationEvent,
@@ -14,7 +20,10 @@ import type {
 	AutomationWithTriggers,
 } from "@proliferate/shared/contracts";
 import * as configurationsDb from "../configurations/db";
+import { getServicesLogger } from "../logger";
+import * as pollGroupsDb from "../poll-groups/db";
 import { createRunFromTriggerEvent } from "../runs/service";
+import { CronValidationError, assertValidCronExpression } from "../schedules/service";
 import * as automationsDb from "./db";
 import {
 	toAutomation,
@@ -25,6 +34,29 @@ import {
 	toAutomationWithTriggers,
 	toNewAutomationListItem,
 } from "./mapper";
+
+let scheduledQueue: ReturnType<typeof createScheduledQueue> | null = null;
+let pollGroupQueue: ReturnType<typeof createPollGroupQueue> | null = null;
+
+function getScheduledQueue() {
+	if (!scheduledQueue) {
+		scheduledQueue = createScheduledQueue();
+	}
+	return scheduledQueue;
+}
+
+function getPollGroupQueue() {
+	if (!pollGroupQueue) {
+		pollGroupQueue = createPollGroupQueue();
+	}
+	return pollGroupQueue;
+}
+
+async function removeScheduledJobByPattern(triggerId: string, cronPattern: string): Promise<void> {
+	await getScheduledQueue().removeRepeatable(`scheduled:${triggerId}`, {
+		pattern: cronPattern,
+	});
+}
 
 // ============================================
 // Types
@@ -187,7 +219,39 @@ export async function updateAutomation(
  * Delete an automation.
  */
 export async function deleteAutomation(id: string, orgId: string): Promise<boolean> {
+	const triggerSchedules = await automationsDb.listTriggerSchedulesForAutomation(id, orgId);
 	await automationsDb.deleteById(id, orgId);
+
+	for (const trigger of triggerSchedules) {
+		if (trigger.provider !== "scheduled" || !trigger.pollingCron) {
+			continue;
+		}
+
+		try {
+			await removeScheduledJobByPattern(trigger.id, trigger.pollingCron);
+		} catch (err) {
+			getServicesLogger()
+				.child({ module: "automations" })
+				.error({ err, triggerId: trigger.id }, "Failed to remove cron trigger schedule");
+		}
+	}
+
+	if (triggerSchedules.some((trigger) => trigger.triggerType === "polling")) {
+		try {
+			const orphaned = await pollGroupsDb.deleteOrphanedGroups();
+			if (orphaned.length > 0) {
+				const queue = getPollGroupQueue();
+				for (const group of orphaned) {
+					await removePollGroupJob(queue, group.id, group.cronExpression);
+				}
+			}
+		} catch (err) {
+			getServicesLogger()
+				.child({ module: "automations" })
+				.error({ err }, "Failed to clean up poll groups");
+		}
+	}
+
 	return true;
 }
 
@@ -484,16 +548,35 @@ export async function createAutomationTrigger(
 		}
 	}
 
-	// Generate webhook path and secret
-	const webhookUrlPath = `/webhooks/t_${randomUUID().slice(0, 12)}`;
-	const webhookSecret = randomBytes(32).toString("hex");
+	if (input.provider === "scheduled") {
+		if (!input.cronExpression || input.cronExpression.trim().length === 0) {
+			throw new CronValidationError("Scheduled triggers require cronExpression");
+		}
+		assertValidCronExpression(input.cronExpression);
+	}
+
+	const triggerType = input.triggerType ?? "webhook";
+	if (
+		triggerType === "polling" &&
+		input.cronExpression !== null &&
+		input.cronExpression !== undefined
+	) {
+		if (input.cronExpression.trim().length === 0) {
+			throw new CronValidationError("Polling triggers require cronExpression");
+		}
+		assertValidCronExpression(input.cronExpression);
+	}
+
+	const isWebhookTrigger = triggerType === "webhook" && input.provider !== "scheduled";
+	const webhookUrlPath = isWebhookTrigger ? `/webhooks/t_${randomUUID().slice(0, 12)}` : null;
+	const webhookSecret = isWebhookTrigger ? randomBytes(32).toString("hex") : null;
 
 	const trigger = await automationsDb.createTriggerForAutomation({
 		automationId,
 		organizationId: orgId,
 		name: `${automationData.name} - ${input.provider}`,
 		provider: input.provider,
-		triggerType: input.triggerType ?? "webhook",
+		triggerType,
 		enabled: input.enabled ?? true,
 		config: (input.config ?? {}) as automationsDb.Json,
 		integrationId: input.integrationId ?? null,
@@ -512,6 +595,21 @@ export async function createAutomationTrigger(
 			});
 		} catch {
 			// Ignore duplicate constraint errors - connection may already exist
+		}
+	}
+
+	if (
+		input.provider === "scheduled" &&
+		(input.enabled ?? true) &&
+		typeof input.cronExpression === "string" &&
+		input.cronExpression.trim().length > 0
+	) {
+		try {
+			await addScheduledJob(getScheduledQueue(), trigger.id, input.cronExpression);
+		} catch (err) {
+			getServicesLogger()
+				.child({ module: "automations" })
+				.error({ err, triggerId: trigger.id }, "Failed to schedule cron trigger");
 		}
 	}
 
