@@ -167,15 +167,22 @@ export async function finalizeSetupHandler(
 			for (const [key, value] of Object.entries(inputSecrets)) {
 				const encryptedValue = encrypt(value, encryptionKey);
 
-				await secrets.upsertSecretByRepoAndKey({
+				const stored = await secrets.upsertSecretByRepoAndKey({
 					repoId,
 					organizationId,
 					key,
 					encryptedValue,
 				});
+				if (!stored) {
+					throw new Error(`Failed to store secret key: ${key}`);
+				}
 			}
 		} catch (err) {
-			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Failed to store secrets" });
+			log.error({ err, repoId }, "Failed to store setup secrets");
+			throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				message: err instanceof Error ? err.message : "Failed to store secrets",
+				cause: err,
+			});
 		}
 	}
 

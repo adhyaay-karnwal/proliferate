@@ -32,6 +32,12 @@ import type {
 // ============================================
 
 export type SecretRow = InferSelectModel<typeof secrets>;
+export interface ScopedSecretForSessionRow {
+	key: string;
+	encryptedValue: string;
+	repoId: string | null;
+	updatedAt: Date | null;
+}
 
 // ============================================
 // Secrets Queries
@@ -183,6 +189,21 @@ export async function getSecretsForSession(
 	orgId: string,
 	repoIds: string[],
 ): Promise<SecretForSessionRow[]> {
+	const rows = await getScopedSecretsForSession(orgId, repoIds);
+	return rows.map((row) => ({
+		key: row.key,
+		encryptedValue: row.encryptedValue,
+	}));
+}
+
+/**
+ * Get org/repo-scoped secrets for session injection with scope metadata.
+ * Used by boot-time precedence resolution.
+ */
+export async function getScopedSecretsForSession(
+	orgId: string,
+	repoIds: string[],
+): Promise<ScopedSecretForSessionRow[]> {
 	const db = getDb();
 
 	// Include org-wide secrets (repoId is null) and repo-specific secrets
@@ -193,38 +214,66 @@ export async function getSecretsForSession(
 		.select({
 			key: secrets.key,
 			encryptedValue: secrets.encryptedValue,
+			repoId: secrets.repoId,
+			updatedAt: secrets.updatedAt,
 		})
 		.from(secrets)
-		.where(and(eq(secrets.organizationId, orgId), scopeCondition));
+		.leftJoin(configurationSecrets, eq(configurationSecrets.secretId, secrets.id))
+		.where(
+			and(
+				eq(secrets.organizationId, orgId),
+				scopeCondition,
+				// Scoped session reads should only include org/repo secrets that are not
+				// configuration-linked via either column or junction table.
+				isNull(secrets.configurationId),
+				isNull(configurationSecrets.secretId),
+			),
+		);
 
 	return rows;
 }
 
 /**
- * Upsert a secret (insert or update by repo_id,key).
+ * Upsert a repo-scoped secret (insert or update by org/repo/key/configuration scope).
  * Returns true on success.
  */
 export async function upsertByRepoAndKey(input: UpsertSecretInput): Promise<boolean> {
 	const db = getDb();
 	try {
-		await db
-			.insert(secrets)
-			.values({
-				repoId: input.repoId,
-				organizationId: input.organizationId,
-				key: input.key,
-				encryptedValue: input.encryptedValue,
-			})
-			.onConflictDoUpdate({
-				target: [secrets.organizationId, secrets.repoId, secrets.key],
-				set: {
+		await db.transaction(async (tx) => {
+			const updatedRows = await tx
+				.update(secrets)
+				.set({
 					encryptedValue: input.encryptedValue,
 					updatedAt: new Date(),
-				},
+				})
+				.where(
+					and(
+						eq(secrets.organizationId, input.organizationId),
+						eq(secrets.repoId, input.repoId),
+						eq(secrets.key, input.key),
+						isNull(secrets.configurationId),
+					),
+				)
+				.returning({ id: secrets.id });
+
+			if (updatedRows.length > 0) {
+				return;
+			}
+
+				await tx.insert(secrets).values({
+					repoId: input.repoId,
+					organizationId: input.organizationId,
+					key: input.key,
+					encryptedValue: input.encryptedValue,
+					configurationId: null,
+				});
 			});
 		return true;
 	} catch (error) {
-		getServicesLogger().child({ module: "secrets-db" }).error({ err: error, secretKey: input.key }, "Failed to store secret");
+		getServicesLogger()
+			.child({ module: "secrets-db" })
+			.error({ err: error, secretKey: input.key }, "Failed to store secret");
 		return false;
 	}
 }
@@ -238,21 +287,55 @@ export async function bulkCreateSecrets(
 ): Promise<string[]> {
 	if (entries.length === 0) return [];
 	const db = getDb();
+	if (entries.some((entry) => entry.organizationId !== entries[0].organizationId || entry.repoId)) {
+		throw new Error(
+			"bulkCreateSecrets only supports org-wide entries for a single organization",
+		);
+	}
+
+	// Bulk import writes org-wide secrets (repo/configuration are null). Pre-filter
+	// existing keys so repeated imports remain idempotent even with nullable scopes.
+	const organizationId = entries[0].organizationId;
+	const keys = [...new Set(entries.map((entry) => entry.key))];
+	const existingRows = await db
+		.select({ key: secrets.key })
+		.from(secrets)
+		.where(
+			and(
+				eq(secrets.organizationId, organizationId),
+				isNull(secrets.repoId),
+				isNull(secrets.configurationId),
+				inArray(secrets.key, keys),
+			),
+		);
+	const existingKeys = new Set(existingRows.map((row) => row.key));
+	const rowsToInsert = entries.filter((entry) => !existingKeys.has(entry.key));
+
+	if (rowsToInsert.length === 0) {
+		return [];
+	}
+
 	const rows = await db
 		.insert(secrets)
 		.values(
-			entries.map((e) => ({
+			rowsToInsert.map((e) => ({
 				organizationId: e.organizationId,
 				key: e.key,
 				encryptedValue: e.encryptedValue,
 				description: e.description ?? null,
 				repoId: e.repoId ?? null,
+				configurationId: null,
 				secretType: e.secretType ?? "env",
 				createdBy: e.createdBy,
 			})),
 		)
 		.onConflictDoNothing({
-			target: [secrets.organizationId, secrets.repoId, secrets.key],
+			target: [
+				secrets.organizationId,
+				secrets.repoId,
+				secrets.key,
+				secrets.configurationId,
+			],
 		})
 		.returning({ key: secrets.key });
 	return rows.map((r) => r.key);
@@ -305,9 +388,28 @@ export async function getSecretsForConfiguration(
 	orgId: string,
 	configurationId: string,
 ): Promise<SecretForSessionRow[]> {
+	const rows = await getScopedSecretsForConfiguration(orgId, configurationId);
+	return rows.map((row) => ({
+		key: row.key,
+		encryptedValue: row.encryptedValue,
+	}));
+}
+
+/**
+ * Get configuration-linked secrets with metadata for precedence resolution.
+ */
+export async function getScopedSecretsForConfiguration(
+	orgId: string,
+	configurationId: string,
+): Promise<ScopedSecretForSessionRow[]> {
 	const db = getDb();
 	const rows = await db
-		.select({ key: secrets.key, encryptedValue: secrets.encryptedValue })
+		.select({
+			key: secrets.key,
+			encryptedValue: secrets.encryptedValue,
+			repoId: secrets.repoId,
+			updatedAt: secrets.updatedAt,
+		})
 		.from(configurationSecrets)
 		.innerJoin(secrets, eq(configurationSecrets.secretId, secrets.id))
 		.where(
