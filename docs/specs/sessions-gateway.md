@@ -247,6 +247,8 @@ References: `apps/gateway/src/hub/session-hub.test.ts`, `apps/gateway/src/api/pr
 - Concurrent `ensureRuntimeReady()` calls coalesce into a single promise (`ensureReadyPromise`) within an instance.
 - OpenCode session creation uses bounded retry with exponential backoff for transient transport failures (fetch/socket and retryable 5xx/429), with per-attempt latency logs.
 - On direct lookup transport failures, runtime keeps the stored session ID instead of rotating immediately, preventing message-history churn during transient tunnel/list instability.
+- Git identity is resolved from `sessions.created_by` (`users.findById`) and exported into sandbox env as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` during both deferred runtime boot and immediate session creation, preventing fallback to provider host identities like `root@modal.(none)`.
+- Repo token selection prefers GitHub App installation-backed connections over non-App connections when both are present, and falls back across candidates when a token cannot access the target repository.
 - OpenCode session creation emits explicit reason-coded logs when identity rotation is required (`missing_stored_id` / `stored_id_not_found`) so churn can be traced per session lifecycle.
 - LLM proxy usage is explicitly gated by `LLM_PROXY_REQUIRED=true`; when false, sandboxes use direct `ANTHROPIC_API_KEY` even if `LLM_PROXY_URL` is present in env.
 - E2B auto-pause: if provider supports auto-pause, `sandboxId` is stored as `snapshotId` for implicit recovery.
@@ -272,6 +274,8 @@ References: `apps/gateway/src/hub/session-hub.test.ts`, `apps/gateway/src/api/pr
 
 **Tool events:**
 - The SSE tool lifecycle events (`tool_start` / `tool_metadata` / `tool_end`) are forwarded to clients as UI observability.
+- `tool_metadata` deduplication keys on task-summary content (title + per-item status/title signature), not just summary length, so in-place progress changes continue streaming to clients during long-running task tools.
+- If a tool is running with no metadata/output updates, the gateway emits periodic `status: "running"` heartbeat messages with elapsed-time context so clients can show liveness during long tasks.
 - Gateway-mediated tools are executed via synchronous sandbox callbacks (`POST /proliferate/:sessionId/tools/:toolName`) rather than SSE interception. Idempotency is provided by in-memory `inflightCalls` + `completedResults` maps, keyed by `tool_call_id`. Invocations are also persisted in `session_tool_invocations`.
 - See `agent-contract.md` for the tool callback contract and tool schemas.
 
@@ -424,8 +428,11 @@ Source: `apps/gateway/src/hub/migration-controller.ts`
 - `commit()` — stages files (selective, tracked-only, or all), checks for empty diff, commits.
 - `push()` — detects upstream, selects push strategy, handles shallow clone errors with `git fetch --deepen`.
 - `createPr()` — pushes first, then `gh pr create`, retrieves PR URL via `gh pr view --json`.
+- Before each git action/status request, the hub refreshes git context from `loadSessionContext()` so per-repo integration tokens are re-resolved and not pinned to session-start values.
 
 **Security**: `resolveGitDir()` validates workspace paths stay within `/home/user/workspace/`. All commands use `GIT_TERMINAL_PROMPT=0` and `GIT_ASKPASS=/bin/false` to prevent interactive prompts.
+**Commit identity**: `GitOperations` merges session git identity into command env (`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`) so commit actions succeed even when repo/global git config is absent.
+**Push/PR auth resilience**: `GitOperations` refreshes `/tmp/.git-credentials.json` from current session repo tokens before push, injects `GIT_TOKEN`/`GH_TOKEN` env fallbacks, and supports URL variants (`.git`, no suffix, trailing slash) to avoid credential-helper lookup misses.
 
 ### 6.7 Port Forwarding Proxy — `Implemented`
 
@@ -471,6 +478,8 @@ Token verification chain: (1) User JWT (signed with `gatewayJwtSecret`), (2) Ser
 **Session display helpers** (`apps/web/src/lib/session-display.ts`): Pure formatting functions: `formatActiveTime(seconds)`, `formatCompactMetrics({toolCalls, activeSeconds})`, `getOutcomeDisplay(outcome)`, `formatConfigurationLabel(configurationId)`, `parsePrUrl(url)`. Used across session list rows, peek drawer, and my-work pages.
 
 **Session peek drawer** (`apps/web/src/components/sessions/session-peek-drawer.tsx`): URL-routable right-side sheet. Opened via `?peek=<sessionId>` query param on the sessions page (`apps/web/src/app/(command-center)/dashboard/sessions/page.tsx`). Content sections: header (title + status + outcome), initial prompt, sanitized summary markdown, PR links, metrics grid, timeline, and context (repo/branch/automation). Footer has "Enter Workspace" or "Resume Session" CTA. Uses `useSessionData(id)` for detail data (includes `initialPrompt`). The sessions page wraps its content in `<Suspense>` for `useSearchParams()`.
+
+**Coding session thread status banner** (`apps/web/src/components/coding-session/thread.tsx`, `apps/web/src/components/coding-session/runtime/use-session-websocket.ts`): When gateway sends `status` with a non-empty `message` (including long-task heartbeat updates), the thread renders an inline progress banner above the composer; it clears when tool output resumes (`tool_metadata` / `tool_end`) or the assistant turn completes.
 
 **Sanitized markdown** (`apps/web/src/components/ui/sanitized-markdown.tsx`): Reusable markdown renderer using `react-markdown` + `rehype-sanitize` with a restrictive schema: allowed tags limited to structural/inline elements (no `img`, `iframe`, `script`, `style`), `href` restricted to `http`/`https` protocols (blocking `javascript:` URLs). Optional `maxLength` prop for truncation. Used to render LLM-generated `session.summary` safely.
 

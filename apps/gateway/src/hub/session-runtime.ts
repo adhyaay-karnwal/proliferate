@@ -128,6 +128,16 @@ export class SessionRuntime {
 		return this.context;
 	}
 
+	/**
+	 * Refresh git-related context fields so git operations can use
+	 * newly-resolved integration tokens and latest user identity.
+	 */
+	async refreshGitContext(): Promise<void> {
+		const refreshed = await loadSessionContext(this.env, this.sessionId);
+		this.context.repos = refreshed.repos;
+		this.context.gitIdentity = refreshed.gitIdentity;
+	}
+
 	getOpenCodeUrl(): string | null {
 		return this.openCodeUrl;
 	}
@@ -516,6 +526,14 @@ export class SessionRuntime {
 				throw new Error("Missing agent tunnel URL");
 			}
 
+			// Wait for OpenCode to become reachable before session operations.
+			// After sandbox recovery the tunnel may resolve before OpenCode is serving.
+			const readinessStartMs = Date.now();
+			await this.waitForOpenCodeReady();
+			this.logLatency("runtime.ensure_ready.opencode_ready", {
+				durationMs: Date.now() - readinessStartMs,
+			});
+
 			// Ensure OpenCode session exists
 			const ensureOpenCodeStartMs = Date.now();
 			await this.ensureOpenCodeSession();
@@ -537,10 +555,10 @@ export class SessionRuntime {
 			this.log("Runtime lifecycle complete - status: running");
 			this.logLatency("runtime.ensure_ready.complete");
 		} catch (err) {
-			this.onStatus("error", err instanceof Error ? err.message : "Unknown error");
-			this.logLatency("runtime.ensure_ready.error", {
-				error: err instanceof Error ? err.message : "Unknown error",
-			});
+			const errorMessage = err instanceof Error ? err.message : "Unknown error";
+			this.onStatus("error", errorMessage);
+			this.logError(`Failed to initialize session — ${errorMessage}`, err);
+			this.logLatency("runtime.ensure_ready.error", { error: errorMessage });
 			throw err;
 		}
 	}
@@ -658,6 +676,62 @@ export class SessionRuntime {
 
 		// Store the new ID
 		await sessions.update(this.sessionId, { codingAgentSessionId: sessionId });
+	}
+
+	/**
+	 * Poll the OpenCode session-list endpoint until it responds.
+	 * Prevents downstream 5s-timeout failures when the tunnel is up
+	 * but OpenCode hasn't started serving yet (common after snapshot restore).
+	 */
+	private async waitForOpenCodeReady(): Promise<void> {
+		const maxAttempts = 8;
+		const intervalMs = 1500;
+		const perAttemptTimeoutMs = 2000;
+		const probeUrl = `${this.openCodeUrl}/session`;
+
+		this.log("Waiting for OpenCode readiness", { probeUrl });
+
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			const attemptStartMs = Date.now();
+			try {
+				const response = await fetch(probeUrl, {
+					signal: AbortSignal.timeout(perAttemptTimeoutMs),
+				});
+				this.log("OpenCode ready", {
+					attempt,
+					status: response.status,
+					durationMs: Date.now() - attemptStartMs,
+				});
+				return;
+			} catch (err) {
+				const durationMs = Date.now() - attemptStartMs;
+				const message = err instanceof Error ? err.message : String(err);
+				const cause =
+					err instanceof Error && err.cause && typeof err.cause === "object"
+						? (err.cause as { code?: string; message?: string })
+						: undefined;
+
+				this.logger.warn(
+					{
+						attempt,
+						maxAttempts,
+						durationMs,
+						probeUrl,
+						error: message,
+						causeCode: cause?.code,
+						causeMessage: cause?.message,
+					},
+					"OpenCode readiness probe failed",
+				);
+
+				if (attempt >= maxAttempts) {
+					this.logError("OpenCode did not become ready", err);
+					throw new Error(`OpenCode not reachable after ${maxAttempts} attempts (${message})`);
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+			}
+		}
 	}
 
 	private async createOpenCodeSessionWithRetry(): Promise<string> {
