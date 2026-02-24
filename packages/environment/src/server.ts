@@ -68,3 +68,22 @@ export const env = new Proxy(rawEnv as typeof rawEnv, {
 		return value;
 	},
 }) as typeof rawEnv;
+
+/** Derived feature flags — read once from `env`, importable as constants. */
+export const features = {
+	get isDev() {
+		return process.env.NODE_ENV === "development";
+	},
+	get isCloud() {
+		return env.DEPLOYMENT_PROFILE === "cloud";
+	},
+	get emailEnabled() {
+		return env.EMAIL_ENABLED || env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION;
+	},
+	get billingEnabled() {
+		return env.NEXT_PUBLIC_BILLING_ENABLED;
+	},
+	get integrationsEnabled() {
+		return env.NEXT_PUBLIC_INTEGRATIONS_ENABLED;
+	},
+} as const;

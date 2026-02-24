@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
-import { nextPhase, nodeEnv } from "@proliferate/environment/runtime";
-import { env } from "@proliferate/environment/server";
+import { nextPhase } from "@proliferate/environment/runtime";
+import { env, features } from "@proliferate/environment/server";
 import { betterAuth } from "better-auth";
 import { apiKey, organization } from "better-auth/plugins";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
@@ -15,11 +15,9 @@ const isBuild = nextPhase === PHASE_PRODUCTION_BUILD;
 const appUrl = env.NEXT_PUBLIC_APP_URL ?? (isBuild ? "http://localhost:3000" : undefined);
 const authSecret = env.BETTER_AUTH_SECRET ?? (isBuild ? "build-placeholder" : undefined);
 
-const emailEnabled = env.EMAIL_ENABLED || env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION;
-const resend = emailEnabled ? new Resend(env.RESEND_API_KEY) : null;
+const resend = features.emailEnabled ? new Resend(env.RESEND_API_KEY) : null;
 const emailFrom = env.EMAIL_FROM ?? "";
 
-const isDev = nodeEnv === "development";
 const isLocalDb =
 	env.DATABASE_URL?.includes("localhost") || env.DATABASE_URL?.includes("127.0.0.1");
 
@@ -30,16 +28,16 @@ const pool =
 	globalForAuthDb.authPool ??
 	new Pool({
 		connectionString: env.DATABASE_URL,
-		max: isDev ? 5 : 1, // More connections for local dev; limit in serverless
+		max: features.isDev ? 5 : 1, // More connections for local dev; limit in serverless
 		idleTimeoutMillis: 10000, // Close idle connections after 10s
-		connectionTimeoutMillis: isDev ? 60000 : 5000, // Survive Next.js first-boot compile storm
-		keepAlive: isDev,
+		connectionTimeoutMillis: features.isDev ? 60000 : 5000, // Survive Next.js first-boot compile storm
+		keepAlive: features.isDev,
 		// Explicit ssl avoids the pg v8 deprecation warning about sslmode aliases.
 		// RDS certs aren't in the default trust store, so rejectUnauthorized: false.
 		ssl: isLocalDb ? false : { rejectUnauthorized: false },
 	});
 
-if (isDev) {
+if (features.isDev) {
 	globalForAuthDb.authPool = pool;
 }
 
