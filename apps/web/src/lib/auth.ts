@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { nextPhase, nodeEnv } from "@proliferate/environment/runtime";
 import { env } from "@proliferate/environment/server";
 import { betterAuth } from "better-auth";
 
@@ -8,7 +9,7 @@ import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import { Pool } from "pg";
 import { Resend } from "resend";
 
-const isBuild = process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
+const isBuild = nextPhase === PHASE_PRODUCTION_BUILD;
 const fallbackAppUrl = isBuild ? "http://localhost:3000" : undefined;
 const fallbackAuthSecret = isBuild ? "vercel-build-secret" : undefined;
 
@@ -29,7 +30,7 @@ if (emailEnabled && !emailFrom) {
 	throw new Error("EMAIL_FROM is required when email is enabled.");
 }
 
-const isDev = process.env.NODE_ENV === "development";
+const isDev = nodeEnv === "development";
 const isLocalDb =
 	env.DATABASE_URL?.includes("localhost") || env.DATABASE_URL?.includes("127.0.0.1");
 

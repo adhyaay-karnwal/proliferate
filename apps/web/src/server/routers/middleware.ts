@@ -5,14 +5,15 @@
 import { type ImpersonationContext, isAuthError, requireAuth } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { os, ORPCError } from "@orpc/server";
+import { nodeEnv, runtimeEnv } from "@proliferate/environment/runtime";
 import { BillingGateError } from "@proliferate/shared/billing";
 
 const log = logger.child({ module: "orpc-middleware" });
-const enableTimingLogs = process.env.NODE_ENV === "development" && process.env.ORPC_TIMING !== "0";
+const enableTimingLogs = nodeEnv === "development" && runtimeEnv.ORPC_TIMING !== "0";
 
-const slowTotalThresholdMs = Number(process.env.ORPC_SLOW_TOTAL_MS ?? 1500);
-const slowAuthThresholdMs = Number(process.env.ORPC_SLOW_AUTH_MS ?? 1000);
-const slowEventLoopThresholdMs = Number(process.env.ORPC_SLOW_EVENT_LOOP_MS ?? 100);
+const slowTotalThresholdMs = Number(runtimeEnv.ORPC_SLOW_TOTAL_MS ?? 1500);
+const slowAuthThresholdMs = Number(runtimeEnv.ORPC_SLOW_AUTH_MS ?? 1000);
+const slowEventLoopThresholdMs = Number(runtimeEnv.ORPC_SLOW_EVENT_LOOP_MS ?? 100);
 
 // ============================================
 // Context Types

@@ -7,11 +7,12 @@
 
 import { requireAuth } from "@/lib/auth-helpers";
 import { getUserOrgRole } from "@/lib/permissions";
+import { nodeEnv } from "@proliferate/environment/runtime";
 import { billing } from "@proliferate/services";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-	if (process.env.NODE_ENV === "production") {
+	if (nodeEnv === "production") {
 		return NextResponse.json({ error: "Not found" }, { status: 404 });
 	}
 

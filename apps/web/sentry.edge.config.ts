@@ -1,7 +1,8 @@
+import { nodeEnv } from "@proliferate/environment/runtime";
+import { env } from "@proliferate/environment/server";
 import * as Sentry from "@sentry/nextjs";
 
-const nodeEnv = process.env.NODE_ENV ?? "development";
-const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
+const sentryDsn = env.NEXT_PUBLIC_SENTRY_DSN ?? "";
 
 Sentry.init({
 	dsn: sentryDsn,

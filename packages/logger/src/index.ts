@@ -1,3 +1,4 @@
+import { nodeEnv, runtimeEnv } from "@proliferate/environment/runtime";
 import pino, { type LevelWithSilent, type Logger, type LoggerOptions } from "pino";
 import pinoHttp, { type Options as PinoHttpOptions } from "pino-http";
 
@@ -34,9 +35,9 @@ export interface CreateLoggerOptions {
 export function createLogger(options: CreateLoggerOptions): Logger {
 	const prettyEnabled =
 		options.pretty ??
-		(process.env.NODE_ENV !== "production" &&
-			(process.env.LOG_PRETTY === undefined || process.env.LOG_PRETTY === "true"));
-	const level = options.level ?? parseLogLevel(process.env.LOG_LEVEL) ?? "info";
+		(nodeEnv !== "production" &&
+			(runtimeEnv.LOG_PRETTY === undefined || runtimeEnv.LOG_PRETTY === "true"));
+	const level = options.level ?? parseLogLevel(runtimeEnv.LOG_LEVEL) ?? "info";
 
 	const loggerOptions: LoggerOptions = {
 		level,

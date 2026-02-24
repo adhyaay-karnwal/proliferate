@@ -442,8 +442,11 @@ async function loadEnvironmentVariables(
 		repoIds,
 		configurationId,
 		repoSpecs,
-		requireProxy: process.env.LLM_PROXY_REQUIRED === "true",
+		requireProxy: env.llmProxyRequired,
 		directApiKey: env.anthropicApiKey,
+		proxyUrl: env.llmProxyUrl,
+		billingEnabled: env.billingEnabled,
+		deploymentProfile: env.deploymentProfile,
 	});
 
 	return {

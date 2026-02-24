@@ -5,6 +5,7 @@
  * Uses postgres.js driver with Drizzle ORM.
  */
 
+import { nodeEnv } from "@proliferate/environment/runtime";
 import { env } from "@proliferate/environment/server";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -18,7 +19,7 @@ const globalForDb = globalThis as unknown as {
 	drizzleDb: ReturnType<typeof drizzle<typeof schema>> | undefined;
 };
 
-const isDev = process.env.NODE_ENV === "development";
+const isDev = nodeEnv === "development";
 
 /**
  * Get the Drizzle database instance.

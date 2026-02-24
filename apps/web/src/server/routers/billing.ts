@@ -305,7 +305,7 @@ export const billingRouter = {
 			const plan = input?.plan ?? (org.billingPlan === "pro" ? "pro" : "dev");
 			await orgs.updateBillingPlan(context.orgId, plan);
 
-			const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+			const baseUrl = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 			const result = await autumnAttach({
 				customer_id: org.autumnCustomerId ?? context.orgId,
 				product_id: AUTUMN_PRODUCTS[plan],

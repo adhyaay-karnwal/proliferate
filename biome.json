@@ -29,6 +29,9 @@
 			"security": {
 				"noDangerouslySetInnerHtml": "warn"
 			},
+			"nursery": {
+				"noProcessEnv": "error"
+			},
 			"style": {
 				"noNonNullAssertion": "off",
 				"useNodejsImportProtocol": "off",
@@ -71,7 +74,29 @@
 			"packages/db/drizzle/meta/*_snapshot.json",
 			"open-source-examples",
 			"lovable",
-			"secrets"
+			"secrets",
+			".emdash-analysis"
 		]
-	}
+	},
+	"overrides": [
+		{
+			"include": [
+				"packages/environment/src/**",
+				"packages/cli/src/lib/env.ts",
+				"packages/sandbox-mcp/src/env.ts",
+				"apps/web/next.config.js",
+				"scripts/**",
+				"infra/**",
+				"apps/web/e2e/**",
+				"apps/web/playwright.config.ts"
+			],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noProcessEnv": "off"
+					}
+				}
+			}
+		}
+	]
 }

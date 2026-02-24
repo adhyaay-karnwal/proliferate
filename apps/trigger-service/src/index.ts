@@ -1,3 +1,4 @@
+import { runtimeEnv } from "@proliferate/environment/runtime";
 import { env } from "@proliferate/environment/server";
 import { setServicesLogger } from "@proliferate/services/logger";
 import { registerDefaultTriggers } from "@proliferate/triggers";
@@ -10,7 +11,7 @@ import { startWebhookInboxWorker } from "./webhook-inbox/worker.js";
 
 setServicesLogger(logger);
 
-const PORT = process.env.PORT || 3001;
+const PORT = runtimeEnv.PORT || 3001;
 
 registerDefaultTriggers({
 	nangoSecret: env.NANGO_SECRET_KEY,

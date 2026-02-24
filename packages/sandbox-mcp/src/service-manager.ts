@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { sandboxEnv } from "./env.js";
 import type { ServiceInfo, State } from "./types.js";
 
 // Use /tmp for state/logs (user-writable, doesn't require root)
@@ -7,7 +8,7 @@ const STATE_FILE = "/tmp/proliferate/state.json";
 const LOG_DIR = "/tmp/proliferate/logs";
 const USER_CADDY_DIR = "/home/user/.proliferate/caddy";
 const USER_CADDY_FILE = `${USER_CADDY_DIR}/user.caddy`;
-const DEFAULT_WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? process.cwd();
+const DEFAULT_WORKSPACE_DIR = sandboxEnv.workspaceDir;
 
 const processes: Map<string, ChildProcess> = new Map();
 
@@ -95,6 +96,7 @@ export async function startService(opts: {
 	// Spawn process
 	const proc = spawn("bash", ["-c", command], {
 		cwd,
+		// biome-ignore lint/nursery/noProcessEnv: forwarding env to child process
 		env: { ...process.env, FORCE_COLOR: "1" },
 		stdio: ["ignore", "pipe", "pipe"],
 		detached: true,

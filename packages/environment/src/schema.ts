@@ -120,10 +120,12 @@ export const createServerSchema = (env: EnvLike = process.env) => {
 			billingEnabled,
 			"Required when billing is enabled (NEXT_PUBLIC_BILLING_ENABLED=true or cloud profile)",
 		),
+		ACTIONS_PLANE_LEGACY_TOKENS: optionalBoolean, // Legacy token passthrough for action integrations
 		CI: optionalBoolean,
 		COMPOSIO_API_KEY: optionalString,
 		COMPOSIO_BASE_URL: optionalString,
 		DEFAULT_SANDBOX_PROVIDER: z.enum(["e2b", "modal"]),
+		DEV_CONSOLE_LOG_PATH: optionalString, // Dev-only: file path for client console log capture
 		DEV_USER_ID: optionalString, // Local dev convenience
 		E2B_API_KEY: requiredForProvider(env, "e2b"),
 		E2B_DOMAIN: requiredForProvider(env, "e2b"),

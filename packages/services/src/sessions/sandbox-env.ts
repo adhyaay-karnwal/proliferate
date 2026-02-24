@@ -21,6 +21,9 @@ export interface SandboxEnvInput {
 	repoSpecs?: RepoSpec[];
 	requireProxy?: boolean;
 	directApiKey?: string;
+	proxyUrl?: string;
+	billingEnabled?: boolean;
+	deploymentProfile?: string;
 }
 
 export interface SandboxFileWrite {
@@ -198,11 +201,8 @@ export async function buildSandboxEnvVars(input: SandboxEnvInput): Promise<Sandb
 	const startMs = Date.now();
 	const logger = getServicesLogger().child({ module: "sandbox-env", sessionId: input.sessionId });
 	const envVars: Record<string, string> = {};
-	const requireProxy = normalizeBoolean(
-		input.requireProxy ?? process.env.LLM_PROXY_REQUIRED,
-		false,
-	);
-	const proxyUrl = process.env.LLM_PROXY_URL;
+	const requireProxy = normalizeBoolean(input.requireProxy, false);
+	const proxyUrl = input.proxyUrl;
 	const useProxy = requireProxy && Boolean(proxyUrl);
 
 	logger.debug(
@@ -211,13 +211,13 @@ export async function buildSandboxEnvVars(input: SandboxEnvInput): Promise<Sandb
 			requireProxy,
 			useProxy,
 			hasProxyUrl: Boolean(proxyUrl),
-			hasDirectApiKey: Boolean(input.directApiKey ?? process.env.ANTHROPIC_API_KEY),
+			hasDirectApiKey: Boolean(input.directApiKey),
 		},
 		"Building sandbox env vars",
 	);
 
 	if (!requireProxy) {
-		envVars.ANTHROPIC_API_KEY = input.directApiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
+		envVars.ANTHROPIC_API_KEY = input.directApiKey ?? "";
 	} else {
 		if (!proxyUrl) {
 			throw new Error("LLM proxy is required but LLM_PROXY_URL is not set");
@@ -227,10 +227,7 @@ export async function buildSandboxEnvVars(input: SandboxEnvInput): Promise<Sandb
 
 			// Derive max budget from shadow balance when billing is enabled
 			let maxBudget: number | undefined;
-			const billingEnabled =
-				process.env.NEXT_PUBLIC_BILLING_ENABLED === "true" ||
-				process.env.NEXT_PUBLIC_BILLING_ENABLED === "1" ||
-				process.env.DEPLOYMENT_PROFILE === "cloud";
+			const billingEnabled = input.billingEnabled ?? false;
 			if (billingEnabled) {
 				const orgBilling = await getBillingInfoV2(input.orgId);
 				if (orgBilling?.shadowBalance != null) {

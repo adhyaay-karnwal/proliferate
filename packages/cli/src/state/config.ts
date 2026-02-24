@@ -7,11 +7,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { cliEnv } from "../lib/env";
 
 const PROLIFERATE_DIR = join(homedir(), ".proliferate");
 const CONFIG_FILE = join(PROLIFERATE_DIR, "config.json");
-const DEFAULT_API_URL = "https://app.proliferate.com";
-const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
+const ENV_API_URL = cliEnv.apiUrl;
 
 export interface Config {
 	apiUrl?: string;

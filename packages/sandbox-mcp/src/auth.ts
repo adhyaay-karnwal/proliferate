@@ -3,8 +3,9 @@
  * Used by both the HTTP API server and the terminal WebSocket endpoint.
  */
 
-export const AUTH_TOKEN =
-	process.env.SANDBOX_MCP_AUTH_TOKEN || process.env.SERVICE_TO_SERVICE_AUTH_TOKEN;
+import { sandboxEnv } from "./env.js";
+
+export const AUTH_TOKEN = sandboxEnv.authToken;
 
 /**
  * Validate a Bearer token from an Authorization header.

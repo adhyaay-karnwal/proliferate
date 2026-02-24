@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { createLogger } from "@proliferate/logger";
 import express, { type Request, type Response } from "express";
 import { validateBearerToken } from "./auth.js";
+import { sandboxEnv } from "./env.js";
 import {
 	exposePort,
 	getExposedPort,
@@ -178,7 +179,7 @@ app.get("/api/logs/:name", checkAuth, (req: Request, res: Response) => {
 // Git endpoints
 // ============================================
 
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "/home/user/workspace";
+const WORKSPACE_DIR = sandboxEnv.workspaceDir;
 const MAX_DIFF_BYTES = 64 * 1024;
 
 /** Validate that a resolved path is inside the workspace directory (dereferences symlinks). */

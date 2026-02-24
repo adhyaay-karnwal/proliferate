@@ -17,9 +17,10 @@ import { createLogger } from "@proliferate/logger";
 import { type IPty, spawn as ptySpawn } from "node-pty";
 import { WebSocket, WebSocketServer } from "ws";
 import { validateBearerToken } from "./auth.js";
+import { sandboxEnv } from "./env.js";
 
 const logger = createLogger({ service: "sandbox-mcp" }).child({ module: "terminal" });
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "/home/user/workspace";
+const WORKSPACE_DIR = sandboxEnv.workspaceDir;
 
 export function setupTerminalWebSocket(server: Server): void {
 	const wss = new WebSocketServer({ noServer: true });
@@ -53,6 +54,7 @@ function handleTerminalConnection(ws: WebSocket): void {
 			cols: 80,
 			rows: 24,
 			cwd: WORKSPACE_DIR,
+			// biome-ignore lint/nursery/noProcessEnv: forwarding env to child process
 			env: process.env as Record<string, string>,
 		});
 	} catch (err) {

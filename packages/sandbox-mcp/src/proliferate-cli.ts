@@ -8,10 +8,11 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { executeGrantRequest, executeGrantsList, parseGrantRequestFlags } from "./actions-grants";
+import { sandboxEnv } from "./env";
 
-const BASE_URL = process.env.PROLIFERATE_SANDBOX_MCP_URL || "http://127.0.0.1:4000";
+const BASE_URL = sandboxEnv.baseUrl;
 
-const AUTH_TOKEN = process.env.SANDBOX_MCP_AUTH_TOKEN || process.env.SERVICE_TO_SERVICE_AUTH_TOKEN;
+const AUTH_TOKEN = sandboxEnv.authToken;
 
 function fatal(message: string, exitCode: number): never {
 	process.stderr.write(`Error: ${message}\n`);
@@ -223,7 +224,7 @@ async function servicesLogs(flags: Record<string, string | boolean>): Promise<vo
 
 // ── Env commands ──
 
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/home/user/workspace";
+const WORKSPACE_DIR = sandboxEnv.workspaceDir;
 const PROLIFERATE_ENV_FILE = "/tmp/.proliferate_env.json";
 
 interface EnvFileSpec {
@@ -313,6 +314,7 @@ async function envApply(flags: Record<string, string | boolean>): Promise<void> 
 		const lines: string[] = [];
 
 		for (const { key, required } of entry.keys) {
+			// biome-ignore lint/nursery/noProcessEnv: dynamic env lookup for user-defined keys
 			const val = envOverrides[key] ?? process.env[key];
 			if (val === undefined) {
 				if (required) missing.push(key);
@@ -364,8 +366,8 @@ async function envScrub(flags: Record<string, string | boolean>): Promise<void> 
 
 // ── Actions commands (calls Gateway, not sandbox-mcp) ──
 
-const GATEWAY_URL = process.env.PROLIFERATE_GATEWAY_URL;
-const SESSION_ID = process.env.PROLIFERATE_SESSION_ID;
+const GATEWAY_URL = sandboxEnv.gatewayUrl;
+const SESSION_ID = sandboxEnv.sessionId;
 
 const ACTIONS_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 2_000;

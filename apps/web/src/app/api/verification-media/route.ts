@@ -1,12 +1,13 @@
 import { requireAuth } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { env } from "@proliferate/environment/server";
 import { SignJWT } from "jose";
 import { NextResponse } from "next/server";
 
 const log = logger.child({ route: "verification-media" });
 
-const JWT_SECRET = process.env.GATEWAY_JWT_SECRET;
-const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
+const JWT_SECRET = env.GATEWAY_JWT_SECRET;
+const GATEWAY_URL = env.NEXT_PUBLIC_GATEWAY_URL;
 const TOKEN_LIFETIME = "1h";
 
 function extractSessionId(keyOrPrefix: string): string {

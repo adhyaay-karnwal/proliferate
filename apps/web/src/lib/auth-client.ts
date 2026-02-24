@@ -1,6 +1,7 @@
 "use client";
 
 import { env } from "@proliferate/environment/public";
+import { nextPhase } from "@proliferate/environment/runtime";
 import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
@@ -11,7 +12,7 @@ function getBaseURL() {
 		return `${window.location.origin}/api/auth`;
 	}
 	// Server-side: use environment variable
-	const isBuild = process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
+	const isBuild = nextPhase === PHASE_PRODUCTION_BUILD;
 	const appUrl = env.NEXT_PUBLIC_APP_URL ?? (isBuild ? "http://localhost:3000" : "");
 	return `${appUrl}/api/auth`;
 }

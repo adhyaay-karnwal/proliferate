@@ -1,4 +1,6 @@
-const DEV_DEBUG = process.env.NODE_ENV !== "production";
+import { nodeEnv } from "@proliferate/environment/runtime";
+
+const DEV_DEBUG = nodeEnv !== "production";
 
 interface DevConsoleLogOptions {
 	persist?: boolean;

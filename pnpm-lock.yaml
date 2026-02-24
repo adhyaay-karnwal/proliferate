@@ -591,6 +591,9 @@ importers:
 
   packages/logger:
     dependencies:
+      '@proliferate/environment':
+        specifier: workspace:*
+        version: link:../environment
       pino:
         specifier: ^10.0.0
         version: 10.3.0

@@ -1,11 +1,12 @@
 import { requireAuth } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
+import { env } from "@proliferate/environment/server";
 import { SignJWT } from "jose";
 import { NextResponse } from "next/server";
 
 const log = logger.child({ route: "auth/ws-token" });
 
-const JWT_SECRET = process.env.GATEWAY_JWT_SECRET;
+const JWT_SECRET = env.GATEWAY_JWT_SECRET;
 const TOKEN_LIFETIME = "1h";
 
 /**

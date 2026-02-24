@@ -6,6 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { env } from "@proliferate/environment/server";
 import { getDefaultAgentConfig, toOpencodeModelId } from "../agents";
 import { DEFAULT_CADDYFILE, PLUGIN_MJS } from "./config";
 import { getOpencodeConfig } from "./opencode";
@@ -21,7 +22,7 @@ export function computeBaseSnapshotVersionKey(): string {
 	const agentConfig = getDefaultAgentConfig();
 	const opencodeModelId = toOpencodeModelId(agentConfig.modelId);
 	const opencodeConfig = getOpencodeConfig(opencodeModelId);
-	const imageVersion = process.env.SANDBOX_IMAGE_VERSION || "v1.0.0";
+	const imageVersion = env.SANDBOX_IMAGE_VERSION || "v1.0.0";
 
 	const hash = createHash("sha256");
 	hash.update(PLUGIN_MJS);

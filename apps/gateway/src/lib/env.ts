@@ -27,6 +27,11 @@ export interface GatewayEnv {
 	s3SecretKey?: string;
 	redisUrl: string;
 	idleSnapshotGraceSeconds: number;
+	llmProxyRequired: boolean;
+	llmProxyUrl?: string;
+	actionsLegacyTokens: boolean;
+	billingEnabled: boolean;
+	deploymentProfile: string;
 }
 
 export function loadGatewayEnv(): GatewayEnv {
@@ -53,5 +58,10 @@ export function loadGatewayEnv(): GatewayEnv {
 		s3SecretKey: env.S3_SECRET_KEY,
 		redisUrl: env.REDIS_URL,
 		idleSnapshotGraceSeconds: env.IDLE_SNAPSHOT_DELAY_SECONDS,
+		llmProxyRequired: env.LLM_PROXY_REQUIRED,
+		llmProxyUrl: env.LLM_PROXY_URL,
+		actionsLegacyTokens: env.ACTIONS_PLANE_LEGACY_TOKENS,
+		billingEnabled: env.NEXT_PUBLIC_BILLING_ENABLED,
+		deploymentProfile: env.DEPLOYMENT_PROFILE,
 	};
 }

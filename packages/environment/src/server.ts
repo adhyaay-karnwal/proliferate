@@ -51,6 +51,7 @@ export const env = new Proxy(rawEnv as typeof rawEnv, {
 		if (prop === "SANDBOX_TIMEOUT_SECONDS") return normalizeInt(value, 3600);
 		if (prop === "SNAPSHOT_RETENTION_DAYS") return normalizeInt(value, 14);
 
+		if (prop === "ACTIONS_PLANE_LEGACY_TOKENS") return normalizeBoolean(value);
 		if (prop === "CI") return normalizeBoolean(value);
 		if (prop === "EMAIL_ENABLED") return normalizeBoolean(value);
 		if (prop === "LLM_PROXY_REQUIRED") return normalizeBoolean(value);

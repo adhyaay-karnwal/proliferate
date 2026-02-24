@@ -1,5 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import path from "node:path";
+import { nodeEnv } from "@proliferate/environment/runtime";
+import { env } from "@proliferate/environment/server";
 import { NextResponse } from "next/server";
 
 interface ConsoleLogBody {
@@ -13,7 +15,7 @@ interface ConsoleLogBody {
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-	if (process.env.NODE_ENV === "production") {
+	if (nodeEnv === "production") {
 		return NextResponse.json({ error: "Not found" }, { status: 404 });
 	}
 
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
 }
 
 function resolveConsoleLogPath(): string {
-	const configured = process.env.DEV_CONSOLE_LOG_PATH;
+	const configured = env.DEV_CONSOLE_LOG_PATH;
 	if (configured?.trim()) {
 		return path.resolve(configured);
 	}

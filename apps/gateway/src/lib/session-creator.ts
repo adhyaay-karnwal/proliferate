@@ -484,8 +484,11 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 			repoIds: [],
 			configurationId,
 			repoSpecs: [],
-			requireProxy: process.env.LLM_PROXY_REQUIRED === "true",
+			requireProxy: env.llmProxyRequired,
 			directApiKey: env.anthropicApiKey,
+			proxyUrl: env.llmProxyUrl,
+			billingEnabled: env.billingEnabled,
+			deploymentProfile: env.deploymentProfile,
 		});
 		log.debug(
 			{
@@ -497,7 +500,7 @@ async function createSandbox(params: CreateSandboxParams): Promise<CreateSandbox
 		const mergedEnvVars = {
 			...baseEnvResult.envVars,
 			...gitIdentityEnv,
-			...(process.env.ACTIONS_PLANE_LEGACY_TOKENS === "true" ? integrationEnvVars : {}),
+			...(env.actionsLegacyTokens ? integrationEnvVars : {}),
 			...(sshOptions.envVars || {}),
 			...mandatoryRuntimeEnv,
 		};
@@ -735,14 +738,17 @@ async function loadEnvironmentVariables(
 		repoIds,
 		configurationId,
 		repoSpecs,
-		requireProxy: process.env.LLM_PROXY_REQUIRED === "true",
+		requireProxy: env.llmProxyRequired,
 		directApiKey: env.anthropicApiKey,
+		proxyUrl: env.llmProxyUrl,
+		billingEnabled: env.billingEnabled,
+		deploymentProfile: env.deploymentProfile,
 	});
 
 	return {
 		envVars: {
 			...result.envVars,
-			...(process.env.ACTIONS_PLANE_LEGACY_TOKENS === "true" ? integrationEnvVars : {}),
+			...(env.actionsLegacyTokens ? integrationEnvVars : {}),
 		},
 		fileWrites: result.fileWrites,
 	};
