@@ -2,33 +2,22 @@ import { logger } from "@/lib/logger";
 import { nextPhase, nodeEnv } from "@proliferate/environment/runtime";
 import { env } from "@proliferate/environment/server";
 import { betterAuth } from "better-auth";
-
-const log = logger.child({ module: "auth" });
 import { apiKey, organization } from "better-auth/plugins";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import { Pool } from "pg";
 import { Resend } from "resend";
 
+const log = logger.child({ module: "auth" });
+
+// During `next build`, env vars may be empty — provide safe fallbacks so
+// better-auth's module-scope initialization doesn't crash the build.
 const isBuild = nextPhase === PHASE_PRODUCTION_BUILD;
-const fallbackAppUrl = isBuild ? "http://localhost:3000" : undefined;
-const fallbackAuthSecret = isBuild ? "vercel-build-secret" : undefined;
+const appUrl = env.NEXT_PUBLIC_APP_URL ?? (isBuild ? "http://localhost:3000" : undefined);
+const authSecret = env.BETTER_AUTH_SECRET ?? (isBuild ? "build-placeholder" : undefined);
 
-const appUrl = env.NEXT_PUBLIC_APP_URL ?? fallbackAppUrl;
-const authSecret = env.BETTER_AUTH_SECRET ?? fallbackAuthSecret;
-
-const isTrue = (value: unknown) => value === true || value === "true";
-const emailEnabled =
-	isTrue(env.EMAIL_ENABLED) || isTrue(env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION);
+const emailEnabled = env.EMAIL_ENABLED || env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION;
 const resend = emailEnabled ? new Resend(env.RESEND_API_KEY) : null;
 const emailFrom = env.EMAIL_FROM ?? "";
-
-if (emailEnabled && !env.RESEND_API_KEY) {
-	throw new Error("RESEND_API_KEY is required when email is enabled.");
-}
-
-if (emailEnabled && !emailFrom) {
-	throw new Error("EMAIL_FROM is required when email is enabled.");
-}
 
 const isDev = nodeEnv === "development";
 const isLocalDb =
@@ -55,8 +44,7 @@ if (isDev) {
 }
 
 // When true, blocks login until email is verified and sends verification emails.
-// Coerce because SKIP_ENV_VALIDATION returns raw env strings.
-const sendVerificationEmails = String(env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION) === "true";
+const sendVerificationEmails = Boolean(env.NEXT_PUBLIC_ENFORCE_EMAIL_VERIFICATION);
 
 // Optional signup allowlist – when set, only these emails can create accounts.
 const allowedSignupEmails = env.ALLOWED_SIGNUP_EMAILS
