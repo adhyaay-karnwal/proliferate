@@ -3,7 +3,7 @@
     <a href="https://proliferate.com"> <img width="50%" src="https://d1uh4o7rpdqkkl.cloudfront.net/logotype-with-words.webp" /></a>
 </h2>
 
-<p align="center">The open-source platform for building company-specific background agents</p>
+<p align="center">The open-source background agent</p>
 
 <p align="center">
     <a href="https://join.slack.com/t/proliferatepublic/shared_invite/zt-3ngfqqttg-qyE2cgQBQQ0klmd9Vbh9Ow" target="_blank">
