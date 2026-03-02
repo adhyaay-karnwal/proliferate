@@ -665,9 +665,8 @@ async function tokenHasRepoAccess(token: string, repoUrl: string): Promise<boole
 		if (data.permissions && !data.permissions.push) {
 			logger.warn(
 				{ repoUrl: slug, permissions: data.permissions },
-				"Token has repo access but lacks push permission — skipping",
+				"Token has repo access but lacks push permission — allowing anyway (may fail on push)",
 			);
-			return false;
 		}
 		return true;
 	} catch {
