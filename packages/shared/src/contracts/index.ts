@@ -284,6 +284,7 @@ export type {
 	CodingHarnessShutdownInput,
 	CodingHarnessSendPromptInput,
 	CodingHarnessCollectOutputsInput,
+	ManagerHarnessStartInput,
 	ManagerHarnessState,
 	ManagerHarnessAdapter,
 } from "./harness";

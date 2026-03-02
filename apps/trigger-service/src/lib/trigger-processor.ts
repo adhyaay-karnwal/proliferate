@@ -55,6 +55,22 @@ export async function processTriggerEvents(
 		triggerRow.organizationId,
 	);
 	if (workerId) {
+		if (!triggerRow.enabled) {
+			for (const event of events) {
+				await safeCreateSkippedEvent({
+					triggerId: triggerRow.id,
+					organizationId: triggerRow.organizationId,
+					externalEventId: event.externalId,
+					providerEventType: inferProviderEventType(triggerRow.provider, event.payload),
+					rawPayload: toRawPayload(event.payload),
+					parsedContext: null,
+					dedupKey: triggerDef.idempotencyKey(event),
+					skipReason: "trigger_disabled",
+				});
+				skipped++;
+			}
+			return { processed, skipped };
+		}
 		return bridgeToWakeEvents(workerId, triggerRow, triggerDef, events);
 	}
 
