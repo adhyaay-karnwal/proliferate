@@ -39,7 +39,6 @@ import {
 	sessionNotificationSubscriptions,
 	sessionPullRequests,
 	sessionSkills,
-	sessionToolInvocations,
 	sessionUserState,
 	sessions,
 	slackConversations,
@@ -55,7 +54,6 @@ import {
 	workerRunEvents,
 	workerRuns,
 	workers,
-	workspaceCacheSnapshots,
 } from "./schema";
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -165,7 +163,6 @@ export const reposRelations = relations(repos, ({ one, many }) => ({
 	sessions: many(sessions),
 	configurationRepos: many(configurationRepos),
 	repoBaselines: many(repoBaselines),
-	workspaceCacheSnapshots: many(workspaceCacheSnapshots),
 }));
 
 export const configurationsRelations = relations(configurations, ({ one, many }) => ({
@@ -442,7 +439,6 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
 		fields: [sessions.repoBaselineTargetId],
 		references: [repoBaselineTargets.id],
 	}),
-	toolInvocations: many(sessionToolInvocations),
 	// V1 relations
 	capabilities: many(sessionCapabilities),
 	skills: many(sessionSkills),
@@ -588,17 +584,6 @@ export const triggerPollGroupsRelations = relations(triggerPollGroups, ({ one })
 	integration: one(integrations, {
 		fields: [triggerPollGroups.integrationId],
 		references: [integrations.id],
-	}),
-}));
-
-export const sessionToolInvocationsRelations = relations(sessionToolInvocations, ({ one }) => ({
-	session: one(sessions, {
-		fields: [sessionToolInvocations.sessionId],
-		references: [sessions.id],
-	}),
-	organization: one(organization, {
-		fields: [sessionToolInvocations.organizationId],
-		references: [organization.id],
 	}),
 }));
 
@@ -774,36 +759,12 @@ export const repoBaselinesRelations = relations(repoBaselines, ({ one, many }) =
 		references: [organization.id],
 	}),
 	targets: many(repoBaselineTargets),
-	workspaceCacheSnapshots: many(workspaceCacheSnapshots),
 }));
 
 export const repoBaselineTargetsRelations = relations(repoBaselineTargets, ({ one }) => ({
 	baseline: one(repoBaselines, {
 		fields: [repoBaselineTargets.repoBaselineId],
 		references: [repoBaselines.id],
-	}),
-}));
-
-export const workspaceCacheSnapshotsRelations = relations(workspaceCacheSnapshots, ({ one }) => ({
-	organization: one(organization, {
-		fields: [workspaceCacheSnapshots.organizationId],
-		references: [organization.id],
-	}),
-	repo: one(repos, {
-		fields: [workspaceCacheSnapshots.repoId],
-		references: [repos.id],
-	}),
-	repoBaseline: one(repoBaselines, {
-		fields: [workspaceCacheSnapshots.repoBaselineId],
-		references: [repoBaselines.id],
-	}),
-	repoBaselineTarget: one(repoBaselineTargets, {
-		fields: [workspaceCacheSnapshots.repoBaselineTargetId],
-		references: [repoBaselineTargets.id],
-	}),
-	createdByUser: one(user, {
-		fields: [workspaceCacheSnapshots.createdBy],
-		references: [user.id],
 	}),
 }));
 

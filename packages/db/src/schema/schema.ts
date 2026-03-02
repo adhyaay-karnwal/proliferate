@@ -890,38 +890,6 @@ export const triggerEvents = pgTable(
 	],
 );
 
-export const triggerEventActions = pgTable(
-	"trigger_event_actions",
-	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		triggerEventId: uuid("trigger_event_id").notNull(),
-		toolName: text("tool_name").notNull(),
-		status: text().default("pending"),
-		inputData: jsonb("input_data"),
-		outputData: jsonb("output_data"),
-		errorMessage: text("error_message"),
-		startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
-		completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
-		durationMs: integer("duration_ms"),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-	},
-	(table) => [
-		index("idx_trigger_event_actions_event").using(
-			"btree",
-			table.triggerEventId.asc().nullsLast().op("uuid_ops"),
-		),
-		index("idx_trigger_event_actions_status").using(
-			"btree",
-			table.status.asc().nullsLast().op("text_ops"),
-		),
-		foreignKey({
-			columns: [table.triggerEventId],
-			foreignColumns: [triggerEvents.id],
-			name: "trigger_event_actions_trigger_event_id_fkey",
-		}).onDelete("cascade"),
-	],
-);
-
 export const automationRuns = pgTable(
 	"automation_runs",
 	{
@@ -2032,52 +2000,6 @@ export const triggerPollGroups = pgTable(
 );
 
 /**
- * Session tool invocations — records tool calls within sessions for audit and observability.
- */
-export const sessionToolInvocations = pgTable(
-	"session_tool_invocations",
-	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		sessionId: uuid("session_id").notNull(),
-		organizationId: text("organization_id").notNull(),
-		toolName: text("tool_name").notNull(),
-		toolSource: text("tool_source"),
-		status: text().default("pending"),
-		input: jsonb(),
-		output: jsonb(),
-		error: text(),
-		durationMs: integer("duration_ms"),
-		startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
-		completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow(),
-	},
-	(table) => [
-		index("idx_session_tool_invocations_session").using(
-			"btree",
-			table.sessionId.asc().nullsLast().op("uuid_ops"),
-		),
-		index("idx_session_tool_invocations_org").using(
-			"btree",
-			table.organizationId.asc().nullsLast().op("text_ops"),
-		),
-		index("idx_session_tool_invocations_status").using(
-			"btree",
-			table.status.asc().nullsLast().op("text_ops"),
-		),
-		foreignKey({
-			columns: [table.sessionId],
-			foreignColumns: [sessions.id],
-			name: "session_tool_invocations_session_id_fkey",
-		}).onDelete("cascade"),
-		foreignKey({
-			columns: [table.organizationId],
-			foreignColumns: [organization.id],
-			name: "session_tool_invocations_organization_id_fkey",
-		}).onDelete("cascade"),
-	],
-);
-
-/**
  * User action preferences — per-user, per-org toggles for action sources.
  * Absence of a row means "enabled" (default). Rows are stored for explicit opt-outs.
  * sourceId is the action source key (e.g. "linear", "connector:<uuid>").
@@ -2771,74 +2693,6 @@ export const repoBaselineTargets = pgTable(
 			foreignColumns: [repoBaselines.id],
 			name: "repo_baseline_targets_repo_baseline_id_fkey",
 		}).onDelete("cascade"),
-	],
-);
-
-// ============================================
-// V1: Workspace Cache Snapshots (optimization-only)
-// ============================================
-
-export const workspaceCacheSnapshots = pgTable(
-	"workspace_cache_snapshots",
-	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		organizationId: text("organization_id").notNull(),
-		repoId: uuid("repo_id").notNull(),
-		repoBaselineId: uuid("repo_baseline_id"),
-		repoBaselineTargetId: uuid("repo_baseline_target_id"),
-		cacheKey: text("cache_key").notNull(),
-		snapshotId: text("snapshot_id").notNull(),
-		sandboxProvider: text("sandbox_provider"),
-		metadataJson: jsonb("metadata_json"),
-		createdBy: text("created_by"),
-		lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true, mode: "date" }),
-		expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
-		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
-	},
-	(table) => [
-		index("idx_workspace_cache_snapshots_org").using(
-			"btree",
-			table.organizationId.asc().nullsLast().op("text_ops"),
-		),
-		index("idx_workspace_cache_snapshots_repo").using(
-			"btree",
-			table.repoId.asc().nullsLast().op("uuid_ops"),
-		),
-		index("idx_workspace_cache_snapshots_baseline").using(
-			"btree",
-			table.repoBaselineId.asc().nullsLast().op("uuid_ops"),
-		),
-		index("idx_workspace_cache_snapshots_baseline_target").using(
-			"btree",
-			table.repoBaselineTargetId.asc().nullsLast().op("uuid_ops"),
-		),
-		unique("uq_workspace_cache_snapshots_cache_key").on(table.cacheKey),
-		foreignKey({
-			columns: [table.organizationId],
-			foreignColumns: [organization.id],
-			name: "workspace_cache_snapshots_organization_id_fkey",
-		}).onDelete("cascade"),
-		foreignKey({
-			columns: [table.repoId],
-			foreignColumns: [repos.id],
-			name: "workspace_cache_snapshots_repo_id_fkey",
-		}).onDelete("cascade"),
-		foreignKey({
-			columns: [table.repoBaselineId],
-			foreignColumns: [repoBaselines.id],
-			name: "workspace_cache_snapshots_repo_baseline_id_fkey",
-		}).onDelete("set null"),
-		foreignKey({
-			columns: [table.repoBaselineTargetId],
-			foreignColumns: [repoBaselineTargets.id],
-			name: "workspace_cache_snapshots_repo_baseline_target_id_fkey",
-		}).onDelete("set null"),
-		foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [user.id],
-			name: "workspace_cache_snapshots_created_by_fkey",
-		}),
 	],
 );
 
