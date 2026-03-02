@@ -18,6 +18,7 @@ export interface CreateSessionInput {
 	sandboxProvider: string;
 
 	// Optional fields
+	repoId?: string | null;
 	createdBy?: string | null;
 	snapshotId?: string | null;
 	initialPrompt?: string;

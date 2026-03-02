@@ -489,12 +489,16 @@ async function createConfigurationSession(input: {
 	const visibility: "private" | "org" = sessionType === "setup" ? "org" : "private";
 	const kind: "task" | "setup" = sessionType === "setup" ? "setup" : "task";
 
+	// Resolve primary repo from configuration
+	const primaryRepoId = configurationRepos[0]?.repo?.id ?? null;
+
 	// Create session record and return immediately.
 	// Sandbox provisioning is handled by the gateway when the client connects.
 	await createSessionWithAdmission(orgId, {
 		id: sessionId,
 		configurationId,
 		organizationId: orgId,
+		repoId: primaryRepoId,
 		createdBy: userId,
 		sessionType,
 		status: "starting",
