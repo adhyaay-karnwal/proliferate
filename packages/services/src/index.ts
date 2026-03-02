@@ -10,6 +10,7 @@ export * as actions from "./actions";
 export * as admin from "./admin";
 export * as baseSnapshots from "./base-snapshots";
 export * as automations from "./automations";
+export * as baselines from "./baselines";
 export * as billing from "./billing";
 export * as cli from "./cli";
 export * as connectors from "./connectors";

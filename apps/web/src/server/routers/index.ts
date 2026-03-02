@@ -8,6 +8,7 @@ import { actionsRouter } from "./actions";
 import { adminRouter } from "./admin";
 import { authRouter } from "./auth";
 import { automationsRouter } from "./automations";
+import { baselinesRouter } from "./baselines";
 import { billingRouter } from "./billing";
 import { cliRouter } from "./cli";
 import { configurationsRouter } from "./configurations";
@@ -29,6 +30,7 @@ export const appRouter = {
 	admin: adminRouter,
 	auth: authRouter,
 	automations: automationsRouter,
+	baselines: baselinesRouter,
 	billing: billingRouter,
 	cli: cliRouter,
 	integrations: integrationsRouter,

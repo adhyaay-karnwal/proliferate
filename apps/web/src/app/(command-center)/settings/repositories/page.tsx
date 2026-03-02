@@ -22,12 +22,39 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { LoadingDots } from "@/components/ui/loading-dots";
+import { useActiveBaselinesByRepos } from "@/hooks/use-baselines";
 import { useCreateRepo, useDeleteRepo, useRepos, useSearchRepos } from "@/hooks/use-repos";
 import { cn } from "@/lib/utils";
 import type { GitHubRepo, Repo } from "@/types";
 import { ExternalLink, MoreVertical, Plus, Search, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+
+// ============================================
+// Baseline status display
+// ============================================
+
+function BaselineStatusBadge({ status }: { status: string }) {
+	const styles: Record<string, string> = {
+		ready: "text-foreground",
+		validating: "text-muted-foreground",
+		stale: "text-muted-foreground",
+		failed: "text-destructive",
+	};
+
+	const labels: Record<string, string> = {
+		ready: "Ready",
+		validating: "Validating",
+		stale: "Stale",
+		failed: "Failed",
+	};
+
+	return (
+		<span className={cn("text-xs", styles[status] ?? "text-muted-foreground")}>
+			{labels[status] ?? status}
+		</span>
+	);
+}
 
 // ============================================
 // Main Page
@@ -37,6 +64,19 @@ export default function RepositoriesPage() {
 	const { data: repos, isLoading } = useRepos();
 	const [filterQuery, setFilterQuery] = useState("");
 	const [addDialogOpen, setAddDialogOpen] = useState(false);
+
+	const repoIds = useMemo(() => (repos ?? []).map((r) => r.id), [repos]);
+	const { data: activeBaselines } = useActiveBaselinesByRepos(repoIds, repoIds.length > 0);
+
+	// Index baselines by repoId for O(1) lookup
+	const baselinesByRepo = useMemo(() => {
+		const list = activeBaselines ?? [];
+		const map = new Map<string, (typeof list)[number]>();
+		for (const b of list) {
+			map.set(b.repoId, b);
+		}
+		return map;
+	}, [activeBaselines]);
 
 	const reposList = useMemo(() => {
 		const list = repos ?? [];
@@ -105,13 +145,15 @@ export default function RepositoriesPage() {
 				<div className="rounded-xl border border-border overflow-hidden">
 					{/* Table header */}
 					<div className="flex items-center px-4 py-2 pr-12 text-xs text-muted-foreground border-b border-border/50">
-						<span className="flex-1 min-w-0">Name</span>
-						<span className="w-24 text-center shrink-0">Branch</span>
-						<span className="w-20 text-center shrink-0">GitHub</span>
+						<span className="flex-1 min-w-0">Repository</span>
+						<span className="w-20 text-center shrink-0">Branch</span>
+						<span className="w-24 text-center shrink-0">Baseline</span>
+						<span className="w-20 text-center shrink-0">Status</span>
+						<span className="w-16 text-center shrink-0">Source</span>
 					</div>
 
 					{reposList.map((repo) => (
-						<RepoRow key={repo.id} repo={repo} />
+						<RepoRow key={repo.id} repo={repo} baseline={baselinesByRepo.get(repo.id)} />
 					))}
 				</div>
 			)}
@@ -129,7 +171,14 @@ export default function RepositoriesPage() {
 // Repo Row
 // ============================================
 
-function RepoRow({ repo }: { repo: Repo }) {
+interface BaselineInfo {
+	id: string;
+	repoId: string;
+	status: string;
+	version: string | null;
+}
+
+function RepoRow({ repo, baseline }: { repo: Repo; baseline?: BaselineInfo }) {
 	const deleteRepo = useDeleteRepo();
 	const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -141,23 +190,29 @@ function RepoRow({ repo }: { repo: Repo }) {
 	return (
 		<>
 			<div className="border-b border-border/50 last:border-0">
-				<div className="flex items-center hover:bg-muted/50 transition-colors px-4 py-2.5 text-sm">
+				<Link
+					href={`/settings/repositories/${repo.id}`}
+					className="flex items-center hover:bg-muted/50 transition-colors px-4 py-2.5 text-sm"
+				>
 					<span className="flex-1 min-w-0 font-medium truncate">{repo.githubRepoName}</span>
-					<span className="w-24 text-center text-xs text-muted-foreground shrink-0">
+					<span className="w-20 text-center text-xs text-muted-foreground shrink-0">
 						{repo.defaultBranch || "main"}
 					</span>
+					<span className="w-24 text-center text-xs text-muted-foreground shrink-0 truncate">
+						{baseline?.version ?? "\u2014"}
+					</span>
 					<span className="w-20 flex justify-center shrink-0">
-						<a
-							href={repo.githubUrl}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-muted-foreground hover:text-foreground transition-colors"
-						>
-							<ExternalLink className="h-3.5 w-3.5" />
-						</a>
+						{baseline ? (
+							<BaselineStatusBadge status={baseline.status} />
+						) : (
+							<span className="text-xs text-muted-foreground">\u2014</span>
+						)}
+					</span>
+					<span className="w-16 text-center text-xs text-muted-foreground shrink-0">
+						{repo.source === "github-app" ? "GitHub" : repo.isPrivate ? "Private" : "Public"}
 					</span>
 
-					<div className="shrink-0 ml-2">
+					<div className="shrink-0 ml-2" onClick={(e) => e.preventDefault()}>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
 								<Button variant="ghost" size="icon" className="h-7 w-7">
@@ -165,6 +220,9 @@ function RepoRow({ repo }: { repo: Repo }) {
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								<DropdownMenuItem asChild>
+									<Link href={`/settings/repositories/${repo.id}`}>View details</Link>
+								</DropdownMenuItem>
 								<DropdownMenuItem asChild>
 									<a href={repo.githubUrl} target="_blank" rel="noopener noreferrer">
 										<ExternalLink className="h-4 w-4 mr-2" />
@@ -179,7 +237,7 @@ function RepoRow({ repo }: { repo: Repo }) {
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</div>
-				</div>
+				</Link>
 			</div>
 
 			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
